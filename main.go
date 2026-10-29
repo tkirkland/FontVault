@@ -23,7 +23,9 @@ func main() {
 func run(args []string) int {
 	opts, err := cli.Parse(args, os.Stderr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fontvault: %v\nTry 'fontvault --help' for usage.\n", err)
+		// Terminal path: the exit status is authoritative, so a failed stderr writing
+		// has nothing left to report to — the discard is a deliberate no-op.
+		_, _ = fmt.Fprintf(os.Stderr, "fontvault: %v\nTry 'fontvault --help' for usage.\n", err)
 		return app.ExitUsage
 	}
 	if opts.Help {
