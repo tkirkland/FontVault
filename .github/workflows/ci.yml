@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install git-lfs
+        run: git lfs install --skip-repo
+      - name: Build
+        run: go build ./...
+        env:
+          CGO_ENABLED: 0
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+        env:
+          CGO_ENABLED: 0

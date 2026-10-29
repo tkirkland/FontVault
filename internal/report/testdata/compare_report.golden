@@ -1,0 +1,52 @@
+fontvault report
+
+timestamp: 2026-10-29 14:05:07 +0100
+version: 1.2.3
+mode: compare
+os: TestOS 1.0
+source: user
+font dirs:
+  - /home/u/.local/share/fonts
+repository: alice/fontvault
+branch: main
+commit compared: 0123456789abcdef
+
+summary
+  local only: 2
+  repo only: 1
+  identical: 1
+  differs: 1
+  conflicts skipped: 1
+  excluded locally: 1
+  skipped formats: .fon: 1, .ttc: 2
+  errors: 1
+
+local only
+  Alpha | Bold | 2.0 | bbbbbbbb | /l/a.ttf
+  Zulu | Regular | 1.0 | aaaaaaaa | /l/z.ttf
+
+repo only
+  Alpha | Regular | 1.1 | cccccccc | fonts/alpha/ar-cccccccc.ttf
+
+identical
+  Same | Regular | 1.0 | dddddddd | /l/s.ttf
+
+differs
+  Diff | Regular | 1.0 | eeeeeeee | /l/d.ttf
+
+conflicts skipped
+  Conflict | Regular
+    local:   1.0 | ffffffff | /l/c.ttf
+    repo:    1.1 | 11111111 | fonts/conflict/c-11111111.ttf
+    reason: skipped with -y
+
+excluded locally
+  Excluded | Regular | 1.0 | 22222222 | /l/x.ttf
+    reason: OS default (owner SID)
+
+skipped formats
+  .fon: 1
+  .ttc: 2
+
+errors
+  /l/bad.ttf: invalid font: sfnt parse: invalid font

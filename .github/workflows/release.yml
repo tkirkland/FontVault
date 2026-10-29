@@ -1,0 +1,66 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install git-lfs
+        run: git lfs install --skip-repo
+      - name: Test
+        run: go test ./...
+        env:
+          CGO_ENABLED: 0
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cross-compile
+        shell: bash
+        run: |
+          mkdir -p dist
+          for target in \
+            windows/amd64 windows/arm64 \
+            linux/amd64 linux/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
+              go build -trimpath \
+              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o "dist/fontvault-${GOOS}-${GOARCH}$( [ "$GOOS" = windows ] && echo .exe )" .
+          done
+      - name: Checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create GitHub Release
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "fontvault ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}

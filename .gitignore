@@ -1,0 +1,6 @@
+# fontvault runtime files
+fontvault.cfg
+fontvault_sync_*.txt
+
+# IDE/analyzer tooling
+.deepcode/
