@@ -111,7 +111,7 @@ func (a *App) runModes(ctx context.Context) (int, *report.Report) {
 	case cli.DirectionSync:
 		return a.runSync(ctx, st)
 	default:
-		return a.runCompare(ctx, st)
+		return a.runCompare(st)
 	}
 }
 
