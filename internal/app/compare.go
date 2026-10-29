@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"sort"
 
@@ -11,8 +10,8 @@ import (
 )
 
 // runCompare is read-only: it classifies and reports, making no commits,
-// LFS downloads or local changes.
-func (a *App) runCompare(ctx context.Context, st *runState) (int, *report.Report) {
+// LFS downloads, or local changes.
+func (a *App) runCompare(st *runState) (int, *report.Report) {
 	rep := a.baseReport("compare")
 	rep.Header.BaseSHA = st.workdir.BaseSHA
 
@@ -68,7 +67,7 @@ func (a *App) runCompare(ctx context.Context, st *runState) (int, *report.Report
 		}
 	}
 	if a.Opts.DryRun {
-		fmt.Fprintf(a.Stdout, "dry-run: would write report %s\n", a.reportPath)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would write report %s\n", a.reportPath)
 	}
 	return finalCode(len(errors_), autoSkips), rep
 }
@@ -91,7 +90,9 @@ func sortedReps(reps map[string]*fonts.Font) []*fonts.Font {
 	for _, f := range reps {
 		out = append(out, f)
 	}
-	sortFonts(out)
+	sort.Slice(out, func(i, j int) bool {
+		return lessOrder(fontOrder(out[i]), fontOrder(out[j]))
+	})
 	return out
 }
 
@@ -102,33 +103,42 @@ func sortedManifests(idx *workdir.Index) []*workdir.Manifest {
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if a.Family != b.Family {
-			return a.Family < b.Family
-		}
-		if a.Subfamily != b.Subfamily {
-			return a.Subfamily < b.Subfamily
-		}
-		if a.Key != b.Key {
-			return a.Key < b.Key
-		}
-		return a.RepoPath < b.RepoPath
+		return lessOrder(manifestOrder(out[i]), manifestOrder(out[j]))
 	})
 	return out
 }
 
-func sortFonts(list []*fonts.Font) {
-	sort.Slice(list, func(i, j int) bool {
-		a, b := list[i], list[j]
-		if a.Family != b.Family {
-			return a.Family < b.Family
-		}
-		if a.Subfamily != b.Subfamily {
-			return a.Subfamily < b.Subfamily
-		}
-		if a.Key != b.Key {
-			return a.Key < b.Key
-		}
-		return a.Path < b.Path
-	})
+// orderKey is the sort tuple every report section is ordered by: family,
+// then subfamily, then key, then path. Path is the local file path for a
+// font, the repo path for a manifest.
+type orderKey struct {
+	Family    string
+	Subfamily string
+	Key       string
+	Path      string
+}
+
+// lessOrder compares two orderKey tuples.
+func lessOrder(a, b orderKey) bool {
+	if a.Family != b.Family {
+		return a.Family < b.Family
+	}
+	if a.Subfamily != b.Subfamily {
+		return a.Subfamily < b.Subfamily
+	}
+	if a.Key != b.Key {
+		return a.Key < b.Key
+	}
+	return a.Path < b.Path
+}
+
+// fontOrder maps a local font to its sort tuple.
+func fontOrder(f *fonts.Font) orderKey {
+	return orderKey{Family: f.Family, Subfamily: f.Subfamily, Key: f.Key, Path: f.Path}
+}
+
+// manifestOrder maps a repo manifest to its sort tuple (the repo path
+// stands in for a local path).
+func manifestOrder(m *workdir.Manifest) orderKey {
+	return orderKey{Family: m.Family, Subfamily: m.Subfamily, Key: m.Key, Path: m.RepoPath}
 }
