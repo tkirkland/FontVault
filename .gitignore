@@ -4,3 +4,4 @@ fontvault_sync_*.txt
 
 # IDE/analyzer tooling
 .deepcode/
+/.remember/
