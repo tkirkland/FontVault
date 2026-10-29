@@ -9,7 +9,7 @@ package testfont
 import (
 	"encoding/base64"
 	"encoding/binary"
-	"fmt"
+
 	"sort"
 	"testing"
 )
@@ -282,5 +282,3 @@ func MustBeValid(t testing.TB, b []byte, err error) {
 		t.Fatalf("font too short: %d bytes", len(b))
 	}
 }
-
-var _ = fmt.Sprintf // placeholder to keep fmt import if unused later

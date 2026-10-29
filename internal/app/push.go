@@ -28,16 +28,21 @@ const (
 	pushChoiceUseRepo // sync only: the repo copy replaces the local copy in pull
 )
 
-// pushResult carries the outcome of the push phase.
+// pushResult carries the outcome of the push phase. added/replaced/skipped
+// are cumulative across rebase retries, keyed so a pass re-run cannot
+// duplicate entries.
 type pushResult struct {
-	added    []*fonts.Font
-	replaced []*fonts.Font
-	skipped  []report.Entry
-	errors_  []report.Entry
-	newSHA   string
-	useRepo  map[string]*workdir.Manifest
-	answers  map[string]pushChoice
-	reasons  map[string]string
+	added        []*fonts.Font
+	replaced     []*fonts.Font
+	skipped      []report.Entry
+	addedKeys    map[string]bool
+	replacedKeys map[string]bool
+	skippedKeys  map[string]bool
+	errors_      []report.Entry
+	newSHA       string
+	useRepo      map[string]*workdir.Manifest
+	answers      map[string]pushChoice
+	reasons      map[string]string
 }
 
 // runPush archives local fonts into the repository.
@@ -56,9 +61,12 @@ func (a *App) runPushPhase(ctx context.Context, st *runState, sync bool) (int, *
 	rep.Header.BaseSHA = st.workdir.BaseSHA
 
 	res := &pushResult{
-		useRepo: map[string]*workdir.Manifest{},
-		answers: map[string]pushChoice{},
-		reasons: map[string]string{},
+		useRepo:      map[string]*workdir.Manifest{},
+		answers:      map[string]pushChoice{},
+		reasons:      map[string]string{},
+		addedKeys:    map[string]bool{},
+		replacedKeys: map[string]bool{},
+		skippedKeys:  map[string]bool{},
 	}
 
 	// .gitattributes first: fix it in its own commit before any font commit.
@@ -188,12 +196,8 @@ func (a *App) ensureGitAttributes(ctx context.Context, st *runState) error {
 
 // applyPushFonts runs one pass over the local fonts, writing new and
 // replaced fonts and their manifests. Answered conflicts keep their answer
-// across rebase retries.
+// across rebase retries; outcome entries are cumulative across passes.
 func (a *App) applyPushFonts(ctx context.Context, st *runState, sync bool, res *pushResult) error {
-	res.added = nil
-	res.replaced = nil
-	res.skipped = nil
-
 	for _, f := range sortedReps(st.reps) {
 		if ctx.Err() != nil {
 			return fmt.Errorf("interrupted: %w", ctx.Err())
@@ -232,7 +236,10 @@ func (a *App) pushAdd(ctx context.Context, st *runState, f *fonts.Font, res *pus
 
 	if a.Opts.DryRun {
 		fmt.Fprintf(a.Stdout, "dry-run: would add %s -> %s\n", f.Path, repoPath)
-		res.added = append(res.added, f)
+		if !res.addedKeys[f.Key] {
+			res.addedKeys[f.Key] = true
+			res.added = append(res.added, f)
+		}
 		return nil
 	}
 	content, err := os.ReadFile(f.Path)
@@ -254,7 +261,10 @@ func (a *App) pushAdd(ctx context.Context, st *runState, f *fonts.Font, res *pus
 	if _, err := a.git.AddSparse(ctx, st.workdir.Dir, filepath.FromSlash(repoPath), filepath.FromSlash(manifestPath)); err != nil {
 		return fmt.Errorf("stage %s and %s: %w", repoPath, manifestPath, err)
 	}
-	res.added = append(res.added, f)
+	if !res.addedKeys[f.Key] {
+		res.addedKeys[f.Key] = true
+		res.added = append(res.added, f)
+	}
 	a.Log.Info("staged new font", "path", repoPath)
 	return nil
 }
@@ -267,7 +277,7 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 		case a.Opts.Yes:
 			choice = pushChoiceSkip
 			res.reasons[f.Key] = "-y"
-			res.skipped = append(res.skipped, conflictEntry(f, repo, "-y"))
+			appendSkipped(res, f.Key, conflictEntry(f, repo, "-y"))
 		default:
 			fmt.Fprintf(a.Stdout,
 				"Conflict: %s %s (key %s)\n  local: version %s | revision %s | %d bytes | sha %s | %s\n  repo:  version %s | revision %s | %d bytes | sha %s | %s\n",
@@ -287,7 +297,7 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 			case "s":
 				choice = pushChoiceSkip
 				res.reasons[f.Key] = "user skip"
-				res.skipped = append(res.skipped, conflictEntry(f, repo, "user skip"))
+				appendSkipped(res, f.Key, conflictEntry(f, repo, "user skip"))
 			case "r":
 				if sync {
 					// "use [r]epo": the repo copy replaces the local copy
@@ -313,7 +323,7 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 		if reason == "" {
 			reason = "user skip"
 		}
-		res.skipped = append(res.skipped, conflictEntry(f, repo, reason))
+		appendSkipped(res, f.Key, conflictEntry(f, repo, reason))
 		return nil
 	case pushChoiceUseRepo:
 		// Sync only: the repo copy replaces the local copy in the pull
@@ -326,7 +336,10 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 
 	if a.Opts.DryRun {
 		fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, repo.RepoPath)
-		res.replaced = append(res.replaced, f)
+		if !res.replacedKeys[f.Key] {
+			res.replacedKeys[f.Key] = true
+			res.replaced = append(res.replaced, f)
+		}
 		return nil
 	}
 	content, err := os.ReadFile(f.Path)
@@ -351,9 +364,21 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 	}
 	st.idx.ByKey[f.Key] = manifest
 	st.idx.ByPath[manifest.RepoPath] = manifest
-	res.replaced = append(res.replaced, f)
+	if !res.replacedKeys[f.Key] {
+		res.replacedKeys[f.Key] = true
+		res.replaced = append(res.replaced, f)
+	}
 	a.Log.Info("staged replacement", "path", repo.RepoPath)
 	return nil
+}
+
+// appendSkipped records a skipped conflict exactly once per key.
+func appendSkipped(res *pushResult, key string, entry report.Entry) {
+	if res.skippedKeys[key] {
+		return
+	}
+	res.skippedKeys[key] = true
+	res.skipped = append(res.skipped, entry)
 }
 
 func (a *App) conflictPrompt(sync bool) string {
