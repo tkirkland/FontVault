@@ -127,7 +127,7 @@ func readTableDir(data []byte) (map[string]table, error) {
 		return nil, fmt.Errorf("invalid font: table directory out of bounds")
 	}
 	tables := make(map[string]table, numTables)
-	for i := 0; i < numTables; i++ {
+	for i := range numTables {
 		rec := data[12+16*i:]
 		tag := string(rec[0:4])
 		offset := binary.BigEndian.Uint32(rec[8:12])
@@ -188,7 +188,7 @@ func readNameTable(data []byte) (map[uint16]string, error) {
 		value    string
 	}
 	best := make(map[uint16]candidate)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		rec := data[base+6+12*i : base+18+12*i]
 		platform := binary.BigEndian.Uint16(rec[0:2])
 		encoding := binary.BigEndian.Uint16(rec[2:4])
