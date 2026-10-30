@@ -89,7 +89,7 @@ func build(s Spec) []byte {
 		add("hhea", hhea)
 
 		hmtx := make([]byte, 5*4)
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			binary.BigEndian.PutUint16(hmtx[i*4:], 500)
 		}
 		add("hmtx", hmtx)
