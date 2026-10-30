@@ -35,38 +35,66 @@ func (l *Lock) Path() string { return l.path }
 // recorded PID is not alive is considered stale and is replaced.
 func Acquire(dir string) (*Lock, error) {
 	path := filepath.Join(dir, ".fontvault.lock")
-	for attempt := 0; attempt < 2; attempt++ {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			if _, err := fmt.Fprintf(f, "%d\n", os.Getpid()); err != nil {
-				f.Close()
-				os.Remove(path)
-				return nil, fmt.Errorf("write lock file %s: %w", path, err)
-			}
-			if err := f.Sync(); err != nil {
-				f.Close()
-				os.Remove(path)
-				return nil, fmt.Errorf("sync lock file %s: %w", path, err)
-			}
-			return &Lock{path: path, file: f}, nil
+	for range 2 {
+		lock, err, stale := tryAcquire(path)
+		if stale {
+			// A stale lock was removed: create it on the next attempt.
+			continue
 		}
-		if !os.IsExist(err) {
-			return nil, fmt.Errorf("create lock file %s: %w", path, err)
+		if lock != nil {
+			return lock, nil
 		}
-		pid, readErr := readPID(path)
-		if readErr != nil {
-			// Unreadable lock: treat as held by an unknown process.
-			return nil, &HeldError{Path: path}
-		}
-		if pid > 0 && processAlive(pid) {
-			return nil, &HeldError{Path: path, PID: pid}
-		}
-		// Stale lock: remove and retry once.
-		if err := os.Remove(path); err != nil {
-			return nil, fmt.Errorf("remove stale lock file %s: %w", path, err)
-		}
+		return nil, err
 	}
 	return nil, &HeldError{Path: path}
+}
+
+// tryAcquire attempts one acquisition: it creates the lock file and records
+// the pid, or inspects an existing one. stale is true when the lock of a
+// dead process was removed, so the caller should create it again.
+func tryAcquire(path string) (*Lock, error, bool) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		lock, werr := writeLockFile(path, f)
+		return lock, werr, false
+	}
+	if !os.IsExist(err) {
+		return nil, fmt.Errorf("create lock file %s: %w", path, err), false
+	}
+	pid, readErr := readPID(path)
+	if readErr != nil {
+		// Unreadable lock: treat as held by an unknown process.
+		return nil, &HeldError{Path: path}, false
+	}
+	if pid > 0 && processAlive(pid) {
+		return nil, &HeldError{Path: path, PID: pid}, false
+	}
+	// Stale lock: remove it so the next attempt can create it.
+	if err := os.Remove(path); err != nil {
+		return nil, fmt.Errorf("remove stale lock file %s: %w", path, err), false
+	}
+	return nil, nil, true
+}
+
+// writeLockFile records the pid in the freshly created lock file. On a
+// failed write or sync the half-written file is closed and removed so a
+// later run is not blocked by a lock with no pid in it.
+func writeLockFile(path string, f *os.File) (*Lock, error) {
+	if _, err := fmt.Fprintf(f, "%d\n", os.Getpid()); err != nil {
+		discardLock(path, f)
+		return nil, fmt.Errorf("write lock file %s: %w", path, err)
+	}
+	if err := f.Sync(); err != nil {
+		discardLock(path, f)
+		return nil, fmt.Errorf("sync lock file %s: %w", path, err)
+	}
+	return &Lock{path: path, file: f}, nil
+}
+
+// discardLock closes and removes a lock file that could not be written.
+func discardLock(path string, f *os.File) {
+	f.Close()
+	os.Remove(path)
 }
 
 func readPID(path string) (int, error) {
