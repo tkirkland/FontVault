@@ -614,7 +614,7 @@ func TestSparseWorktreeNoFontsAfterPush(t *testing.T) {
 	env := newTestEnv(t)
 	plat := env.newPlat(t)
 	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
 			t.Fatalf("push %d: %d (%s)", i, res.code, res.stderr)
 		}

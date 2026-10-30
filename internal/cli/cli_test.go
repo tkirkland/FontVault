@@ -73,8 +73,7 @@ func TestUsageErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := parse(t, tt.args...)
-			var ue *UsageError
-			if !errors.As(err, &ue) {
+			if _, ok := errors.AsType[*UsageError](err); !ok {
 				t.Fatalf("err = %v, want UsageError", err)
 			}
 			if !strings.Contains(err.Error(), tt.want) {

@@ -162,8 +162,7 @@ func TestLoadUnreadableNamesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Load(path)
-	var re *ReadError
-	if !errors.As(err, &re) {
+	if _, ok := errors.AsType[*ReadError](err); !ok {
 		t.Fatalf("err = %v, want ReadError", err)
 	}
 	if !strings.Contains(err.Error(), path) {
