@@ -21,8 +21,7 @@ func TestAcquireRelease(t *testing.T) {
 	if _, err := Acquire(dir); err == nil {
 		t.Fatal("second Acquire must fail")
 	} else {
-		var held *HeldError
-		if !errors.As(err, &held) {
+		if _, ok := errors.AsType[*HeldError](err); !ok {
 			t.Fatalf("err = %v, want HeldError", err)
 		}
 	}
