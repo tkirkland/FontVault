@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -40,9 +41,7 @@ func (a *App) runPull(ctx context.Context, st *runState, useRepo map[string]*wor
 	// Build the local lookup: every scanned font, deduplicated through the
 	// reps map where possible.
 	localByKey := map[string]*fonts.Font{}
-	for k, f := range st.reps {
-		localByKey[k] = f
-	}
+	maps.Copy(localByKey, st.reps)
 
 	targets := map[string]*pullTarget{}
 
