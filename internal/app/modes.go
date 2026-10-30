@@ -41,67 +41,23 @@ type runState struct {
 func (a *App) runModes(ctx context.Context) (int, *report.Report) {
 	st := &runState{}
 
-	mgr := workdir.NewManager(a.git, a.Log)
-	state, lock, err := mgr.EnsureReady(ctx, a.workdir, a.remoteFor(a.login), a.branch)
-	if err != nil {
-		var held *lockfile.HeldError
-		if errors.As(err, &held) {
-			fmt.Fprintf(a.Stderr, "fontvault: %v\n", err)
-			return ExitLockHeld, nil
-		}
-		return a.fail("%v", err), nil
+	// Workdir, repo index and local fonts.
+	code := a.prepareWorkdir(ctx, st)
+	if code != 0 {
+		return code, nil
 	}
-	a.lock = lock
-	st.workdir = state
-	if ctx.Err() != nil {
-		return a.fail("interrupted"), nil
-	}
-
-	idx, manifestErrs := workdir.LoadIndex(a.workdir)
-	st.idx = idx
-	for _, e := range manifestErrs {
-		st.manifestErrs = append(st.manifestErrs, report.Entry{Path: "manifest", Reason: e.Error()})
-	}
-
-	// Scan the selected source.
-	st.scanRes = fonts.Scan(fonts.ScanOptions{
-		Dirs:       a.fontSources.Dirs,
-		Recursive:  a.fontSources.Recursive,
-		ExtraFiles: a.fontSources.ExtraFiles,
-	})
+	a.loadRepoIndex(st)
+	a.scanFontSource(st)
 
 	mode := a.Opts.ModeName()
-	applyExclusions := mode == cli.DirectionPush || mode == "compare"
-
-	// OS-default support scans.
-	classifier := a.Platform.Classifier()
-	if applyExclusions {
-		if a.Opts.Source == cli.SourceUser {
-			st.sysHashes, st.sysScanFailed, st.sysScanErrs = a.systemOSDefaultHashes()
-		}
-		st.decisions = exclude.Apply(st.scanRes.Fonts, a.Opts.Source == cli.SourceSystem,
-			st.sysHashes, st.sysScanFailed, classifier, a.xf)
+	usesExclusions := mode == cli.DirectionPush || mode == "compare"
+	if usesExclusions {
+		a.applyExclusions(st)
 	}
 
-	// Resolve local duplicate keys.
-	included := a.includedFonts(st)
-	st.reps, st.localConflictSkips, st.notChosen = a.resolveDuplicates(included, mode)
-	st.presentKeys = map[string]bool{}
-	for _, f := range st.reps {
-		st.presentKeys[f.Key] = true
-	}
-	if applyExclusions {
-		for _, d := range st.decisions {
-			if d.Excluded {
-				st.presentKeys[d.Font.Key] = true
-			}
-		}
-	} else {
-		// Pull: every scanned font counts as present.
-		for _, f := range st.scanRes.Fonts {
-			st.presentKeys[f.Key] = true
-		}
-	}
+	// Local duplicate keys and which keys exist locally.
+	st.reps, st.localConflictSkips, st.notChosen = a.resolveDuplicates(a.includedFonts(st), mode)
+	a.collectPresentKeys(st, usesExclusions)
 
 	switch mode {
 	case cli.DirectionPush:
@@ -112,6 +68,79 @@ func (a *App) runModes(ctx context.Context) (int, *report.Report) {
 		return a.runSync(ctx, st)
 	default:
 		return a.runCompare(st)
+	}
+}
+
+// prepareWorkdir makes the workdir ready and takes its lock. It returns 0
+// when the run may go on, otherwise the exit code to return.
+func (a *App) prepareWorkdir(ctx context.Context, st *runState) int {
+	mgr := workdir.NewManager(a.git, a.Log)
+	state, lock, err := mgr.EnsureReady(ctx, a.workdir, a.remoteFor(a.login), a.branch)
+	if err != nil {
+		// A lock held by another live instance prints as-is and exits 4.
+		if _, ok := errors.AsType[*lockfile.HeldError](err); ok {
+			_, _ = fmt.Fprintf(a.Stderr, "fontvault: %v\n", err)
+			return ExitLockHeld
+		}
+		return a.fail("%v", err)
+	}
+	a.lock = lock
+	st.workdir = state
+	if ctx.Err() != nil {
+		return a.fail("interrupted")
+	}
+	return 0
+}
+
+// loadRepoIndex reads the repo index; unreadable manifests become report
+// entries and do not stop the run.
+func (a *App) loadRepoIndex(st *runState) {
+	idx, manifestErrs := workdir.LoadIndex(a.workdir)
+	st.idx = idx
+	for _, e := range manifestErrs {
+		st.manifestErrs = append(st.manifestErrs, report.Entry{Path: "manifest", Reason: e.Error()})
+	}
+}
+
+// scanFontSource scans the font dirs selected for the run.
+func (a *App) scanFontSource(st *runState) {
+	st.scanRes = fonts.Scan(fonts.ScanOptions{
+		Dirs:       a.fontSources.Dirs,
+		Recursive:  a.fontSources.Recursive,
+		ExtraFiles: a.fontSources.ExtraFiles,
+	})
+}
+
+// applyExclusions gathers the OS-default hashes for a user source and
+// applies the exclusion rules to the scanned fonts.
+func (a *App) applyExclusions(st *runState) {
+	classifier := a.Platform.Classifier()
+	if a.Opts.Source == cli.SourceUser {
+		st.sysHashes, st.sysScanFailed, st.sysScanErrs = a.systemOSDefaultHashes()
+	}
+	st.decisions = exclude.Apply(st.scanRes.Fonts, a.Opts.Source == cli.SourceSystem,
+		st.sysHashes, st.sysScanFailed, classifier, a.xf)
+}
+
+// collectPresentKeys marks every key that exists locally: the
+// representatives plus, for push/compare, the excluded fonts; for pull,
+// every scanned font.
+func (a *App) collectPresentKeys(st *runState, usesExclusions bool) {
+	st.presentKeys = map[string]bool{}
+	for _, f := range st.reps {
+		st.presentKeys[f.Key] = true
+	}
+	if usesExclusions {
+		for _, d := range st.decisions {
+			if d.Excluded {
+				st.presentKeys[d.Font.Key] = true
+			}
+		}
+		return
+	}
+	// Pull: every scanned font counts as present.
+	for _, f := range st.scanRes.Fonts {
+		st.presentKeys[f.Key] = true
 	}
 }
 
