@@ -237,7 +237,7 @@ func (a *App) pullOne(ctx context.Context, st *runState, installer install.Insta
 }
 
 // pullJob bundles one target with the names the installer needs and the
-// report lists its outcome goes into, so the install flows below take two
+// report lists its outcome goes into, so the installation flows below take two
 // parameters instead of nine.
 // note: the lists are held by pointer, exactly like pullOne's parameters, so
 // an append reaches runPull's slices even though the job is copied by value.
