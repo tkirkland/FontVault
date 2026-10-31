@@ -181,7 +181,7 @@ func (a *App) ensureGitAttributes(ctx context.Context, st *runState) error {
 		msg = "Initialize fontvault repository with LFS configuration"
 	}
 	if a.Opts.DryRun {
-		fmt.Fprintf(a.Stdout, "dry-run: would write .gitattributes and commit it (%s)\n", msg)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would write .gitattributes and commit it (%s)\n", msg)
 		return nil
 	}
 	if err := fsutil.AtomicWrite(path, []byte(workdir.GitAttributesContent), 0o644); err != nil {
@@ -241,7 +241,7 @@ func (a *App) pushAdd(ctx context.Context, st *runState, f *fonts.Font, res *pus
 	}
 
 	if a.Opts.DryRun {
-		fmt.Fprintf(a.Stdout, "dry-run: would add %s -> %s\n", f.Path, repoPath)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would add %s -> %s\n", f.Path, repoPath)
 		if !res.addedKeys[f.Key] {
 			res.addedKeys[f.Key] = true
 			res.added = append(res.added, f)
@@ -285,7 +285,7 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 			res.reasons[f.Key] = "-y"
 			appendSkipped(res, f.Key, conflictEntry(f, repo, "-y"))
 		default:
-			fmt.Fprintf(a.Stdout,
+			_, _ = fmt.Fprintf(a.Stdout,
 				"Conflict: %s %s (key %s)\n  local: version %s | revision %s | %d bytes | sha %s | %s\n  repo:  version %s | revision %s | %d bytes | sha %s | %s\n",
 				f.Family, f.Subfamily, f.Key,
 				orDash(f.VersionString), orDash(f.FontRevision), f.Size, fonts.ShortHash(f.SHA256), f.Path,
@@ -341,7 +341,7 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 	}
 
 	if a.Opts.DryRun {
-		fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, repo.RepoPath)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, repo.RepoPath)
 		if !res.replacedKeys[f.Key] {
 			res.replacedKeys[f.Key] = true
 			res.replaced = append(res.replaced, f)
@@ -557,7 +557,7 @@ func commitMessage(added, replaced []*fonts.Font) []byte {
 	if len(sorted) > 0 {
 		b.WriteString("\nFamilies:\n")
 		for _, fam := range sorted {
-			fmt.Fprintf(&b, "  %s\n", fam)
+			_, _ = fmt.Fprintf(&b, "  %s\n", fam)
 		}
 	}
 	return []byte(b.String())
@@ -567,7 +567,7 @@ func commitMessage(added, replaced []*fonts.Font) []byte {
 // the apply loop after non-fast-forward rejections.
 func (a *App) pushWithRetries(ctx context.Context, st *runState, res *pushResult, apply func() error) (bool, error) {
 	if a.Opts.DryRun {
-		fmt.Fprintf(a.Stdout, "dry-run: would push LFS objects and branch %s to origin\n", st.workdir.Branch)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would push LFS objects and branch %s to origin\n", st.workdir.Branch)
 		return false, nil
 	}
 	backoff := time.Second
