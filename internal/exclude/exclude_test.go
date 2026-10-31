@@ -68,7 +68,7 @@ ABC123abc123abc123abc123abc123abc123abc123abc123abc123abc123ab12
 }
 
 func TestApplySystemSource(t *testing.T) {
-	fonts := []*fonts.Font{
+	fontList := []*fonts.Font{
 		testFont("OSFont", "OS Fam", "hash-os"),
 		testFont("UserFont", "User Fam", "hash-user"),
 		testFont("Unknown", "Unknown Fam", "hash-unknown"),
@@ -82,7 +82,7 @@ func TestApplySystemSource(t *testing.T) {
 		"/fonts/Unknown.ttf": errors.New("permission denied"),
 	}}
 	xf, _ := ParseExclusionFile(strings.NewReader("exc fam\n"))
-	dec := Apply(fonts, true, nil, false, cls, xf)
+	dec := Apply(fontList, true, nil, false, cls, xf)
 
 	byPS := map[string]Decision{}
 	for _, d := range dec {
@@ -107,11 +107,11 @@ func TestApplySystemSource(t *testing.T) {
 
 func TestApplyUserSource(t *testing.T) {
 	sysHashes := map[string]bool{"hash-os": true}
-	fonts := []*fonts.Font{
+	fontList := []*fonts.Font{
 		testFont("Match", "A", "hash-os"),
 		testFont("Other", "B", "hash-other"),
 	}
-	dec := Apply(fonts, false, sysHashes, false, nil, nil)
+	dec := Apply(fontList, false, sysHashes, false, nil, nil)
 	if !dec[0].Excluded || dec[0].Reason != "matches an OS-default system font" {
 		t.Errorf("Match = %+v", dec[0])
 	}
@@ -119,7 +119,7 @@ func TestApplyUserSource(t *testing.T) {
 		t.Error("Other should be included")
 	}
 	// System scan failed: fail closed, exclude all user fonts.
-	dec = Apply(fonts, false, nil, true, nil, nil)
+	dec = Apply(fontList, false, nil, true, nil, nil)
 	for _, d := range dec {
 		if !d.Excluded || d.Reason != "system font scan unavailable" {
 			t.Errorf("fail closed: %+v", d)
