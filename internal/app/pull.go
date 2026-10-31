@@ -288,8 +288,10 @@ func (a *App) pullBlob(ctx context.Context, st *runState, m *workdir.Manifest) (
 
 // writePullTemp writes that content into a temp file inside the install dir,
 // so the installer's final rename stays atomic.
-// note: a failed write or close leaves the file on disk, registered with
-// addTemp exactly as before, and the run's cleanup removes it at the end.
+// note: the handle is closed exactly once on every path. On a failed write or
+// sync the close error is logged instead of dropped, but it never replaces
+// the write/sync error, which is the cause the run reports. The file itself
+// stays on disk, registered with addTemp, and the run's cleanup removes it.
 func (a *App) writePullTemp(blob []byte) (string, error) {
 	tmp, err := os.CreateTemp(a.installDir, ".fontvault-pull-*")
 	if err != nil {
@@ -298,17 +300,28 @@ func (a *App) writePullTemp(blob []byte) (string, error) {
 	tmpName := tmp.Name()
 	a.addTemp(tmpName)
 	if _, err := tmp.Write(blob); err != nil {
-		tmp.Close()
+		a.closeTempAfterFailure(tmp)
 		return "", fmt.Errorf("write temp file %s: %w", tmpName, err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		a.closeTempAfterFailure(tmp)
 		return "", fmt.Errorf("sync temp file %s: %w", tmpName, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return "", fmt.Errorf("close temp file %s: %w", tmpName, err)
 	}
 	return tmpName, nil
+}
+
+// closeTempAfterFailure closes the temp handle on a path that is already
+// returning a different error.
+// note: dropping the close error hid a second failure (a flush that never
+// reached the disk); it is logged here and keeps the caller's error as the
+// reported cause, so the run fails exactly as it did before.
+func (a *App) closeTempAfterFailure(tmp *os.File) {
+	if err := tmp.Close(); err != nil {
+		a.Log.Warn("close temp file after failed write or sync", "path", tmp.Name(), "error", err)
+	}
 }
 
 // installMissingFont installs a repo font that has no local copy.
