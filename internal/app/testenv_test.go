@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -392,6 +393,27 @@ func pullArgs(source string) []string {
 	return []string{"-s", source, "-d", "pull", "-y"}
 }
 
+// seededEnv returns a fresh env and plat whose user font dir holds fonts
+// (file name → spec, written in sorted order) already pushed once, seeding
+// the repo.
+func seededEnv(t *testing.T, fonts map[string]testfont.Spec) (*testEnv, *fakePlatform) {
+	t.Helper()
+	env := newTestEnv(t)
+	plat := env.newPlat(t)
+	names := make([]string, 0, len(fonts))
+	for name := range fonts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		env.writeFont(env.fontDir, name, fonts[name])
+	}
+	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
+		t.Fatalf("seed push: %d (%s)", res.code, res.stderr)
+	}
+	return env, plat
+}
+
 // readReport decrypts nothing; returns the report text.
 func (e *testEnv) reportText() string {
 	e.t.Helper()
@@ -411,11 +433,17 @@ func (e *testEnv) reportText() string {
 	return ""
 }
 
+// cfgFile loads the cfg written by a successful run. config.Load returns
+// (nil, nil) when the file is absent, so the helper fails the test there
+// instead of handing callers a nil *config.File to dereference.
 func (e *testEnv) cfgFile() *config.File {
 	e.t.Helper()
 	f, err := config.Load(filepath.Join(e.appDir, "fontvault.cfg"))
 	if err != nil {
 		e.t.Fatal(err)
+	}
+	if f == nil {
+		e.t.Fatal("cfg file was not written")
 	}
 	return f
 }
