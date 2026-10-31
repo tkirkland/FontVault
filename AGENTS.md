@@ -30,6 +30,18 @@ package/test API.
   and are treated as "skip" instead of panicking or picking the wrong file.
 - Added `"strconv"` to `internal/app/stdlib/__init__.go`'s import list (sorted: `"sort"`, `"strconv"`, `"strings"`).
 
+### Report gap fix (push/sync), test-first
+
+- `runPushPhase` (`push.go`) now merges `st.localConflictSkips` into the "Conflicts skipped" section **and** the exit-2
+  auto-skip tally via a combined `skippedAll` slice, matching compare. Safe without dedup or pre-sorting: the two lists
+  are disjoint by construction (skipped keys are absent from `st.reps`, and `res.skipped` only ever holds `st.reps`
+  keys), `pushWithRetries` re-runs only apply/verify/commit (never `runPushPhase`), and `report.AddSection` sorts each
+  section. Sync is covered automatically — it merges the push-phase sections and already ORs either phase's exit 2.
+- Corrected the claim in this file's own "Open" item: the **excluded section was never a gap** — `push.go` has appended
+  `st.notChosen` since the initial commit (`4e1cf5e`). Only the Conflicts-skipped half was real.
+- Test: `TestPushLocalDuplicateUnderYesSkipsAndReports` in `integration_test.go` (RED confirmed: exit 0 where the spec
+  says 2; GREEN after the fix). Updated the now-stale comment in `modes.go` ("compare and push list these…").
+
 ## Verification
 
 - `modes.go` uses LF line endings; `gofmt -l -e` is clean, `go build ./...` and `go test ./...` pass (including
@@ -44,10 +56,13 @@ package/test API.
 
 ## Open / unresolved (not changed, pending user decision)
 
-1. **Report gap**: `push.go` (and sync) builds the "Conflicts skipped" section from `res.skipped` (pushResult), not from
-   `runState.localConflictSkips`, so a skipped local-duplicate key has no entry in the report even though it is
-   correctly not pushed (`applyPushFonts` walks `sortedReps(st.reps)`). Same for the excluded-fonts section: `push.go`
-   uses `pushResult`'s list, while `st.notChosen` is populated.
+1. **Pull-mode report gap (remaining)**: `pull` still builds "Conflicts skipped" only from its own repo-conflict list,
+   so a
+   `-y`/declined local-duplicate skip is neither listed nor counted for exit 2 in pull (the key also stays out of the
+   repo
+   because `collectPresentKeys` marks it present, so the user silently loses both copies). The `modes.go` comments call
+   this deliberate; the identical merge would fix it if the user decides pull should honor "skipped and listed" too.
+   The push/sync half is fixed — see "Report gap fix" under "Work done".
 2. **Reason strings** (`"-y"`, `"user skip"`, `"local conflict"`) are hardcoded string literals in `modes.go`,
    `push.go`, `pull.go`, and `compare.go`'s `isAutoSkipReason` (which counts auto-skips for the exit-2 tally). A shared
    `reason.go` of constants would be tidier but would touch many files/exports; not done.
@@ -57,6 +72,7 @@ package/test API.
 
 - Prompt semantics: `prompter.choice` lowercases/trims, re-asks on invalid input, and only returns `ok=false` when no
   line could be read; an error is reported then treated as a skip.
-- `compare.go` consumes `localConflictSkips`/`notChosen` entry lists; `pull.go` reads neither.
+- `compare.go` consumes `localConflictSkips`/`notChosen` entry lists; `push.go` consumes both for its report (skips and
+  excluded); `pull.go` reads neither.
 - No dedicated memory tool/plugin exists in this environment; this file is the project memory convention (`AGENTS.md` at
   repo root, read by future agent sessions).
