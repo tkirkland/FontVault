@@ -245,7 +245,7 @@ type pullJob struct {
 	t                                  *pullTarget
 	meta                               install.Meta
 	metaName                           report.Entry
-	target                             string // where the font lands in the install dir
+	target                             string // where the font lands in the installation dir
 	installed, replaced, skipped, errs *[]report.Entry
 }
 
@@ -286,7 +286,7 @@ func (a *App) pullBlob(ctx context.Context, st *runState, m *workdir.Manifest) (
 	return blob, nil
 }
 
-// writePullTemp writes that content into a temp file inside the install dir,
+// writePullTemp writes that content into a temp file inside the installation dir,
 // so the installer's final rename stays atomic.
 // note: the handle is closed exactly once on every path. On a failed write or
 // sync the close error is logged instead of dropped, but it never replaces
@@ -396,7 +396,7 @@ func (a *App) replaceLocalFont(ctx context.Context, installer install.Installer,
 }
 
 // recordSkipped appends the skipped-conflict entry for one pull font: the
-// repo manifest against the path the install would have used.
+// repo manifest against the path the installation would have used.
 // note: "registry name collision" is an automatic skip, so it counts toward
 // exit code 2; the other reasons name a file the user or the run declined.
 func recordSkipped(job pullJob, reason string) {
