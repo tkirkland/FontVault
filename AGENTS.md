@@ -95,6 +95,17 @@ while preserving behavior.
   explicit discards (`entries, _ := os.ReadDir(dir)` in report/config/integration tests) are left alone.
 - Verified: `gofmt -l -e` clean, `go vet ./internal/app` clean, `go test ./...` all green, LF endings preserved.
 
+### GoLand diagnostics sweep: `testenv_test.go` fakes + `internal/cli/cli.go`, same session
+
+- `testenv_test.go`: 12 "Unused parameter" warnings on the fakes (`fakeGitHub.CurrentUser/RepoExists/CreateRepo`,
+  `fakePlatform.InstallDir/NewInstaller/CheckPullPrereqs`) — unused params renamed to `_`, same as `fakeInstaller`
+  already did; interface signatures unchanged. `err.Is` was NOT used here (see Notes).
+- `cli.go`: `err == pflag.ErrHelp` → `errors.Is(err, pflag.ErrHelp)` (added `"errors"` import; verified this SDK's
+  `errors.Is` at `src/errors/wrap.go` is the standard unwrap-chain form). Bare `fmt.Fprint(w, usageTemplate)` →
+  `_, _ = fmt.Fprint(...)` per the discard convention.
+- Verified: `gofmt -l -e` clean, `go vet ./internal/cli` clean, `go test ./internal/cli` green, `go test ./...` green,
+  IDE reports 0 diagnostics for both files; LF endings preserved.
+
 ## Session log — 2026-10-30
 
 ## Project
@@ -173,3 +184,7 @@ package/test API.
   excluded); `pull.go` reads neither.
 - No dedicated memory tool/plugin exists in this environment; this file is the project memory convention (`AGENTS.md` at
   repo root, read by future agent sessions).
+- Toolchain shape (go1.27.3): the `error` interface has **no** `Is`/`Visit` methods — `err.Is(target)` is a compile
+  error ("type error has no field or method Is"). Use `errors.Is`/`errors.AsType` (this SDK names it `AsType`, not
+  `As`; `errors.Is` at `src/errors/wrap.go` has the usual unwrap-chain semantics). Same family as the `filepath.Walk`
+  non-upstream shape noted above.
