@@ -81,6 +81,20 @@ while preserving behavior.
   run's `addTemp` cleanup reports removal failures). `internal/install/install.go`'s `removeQuietly` has the same
   shape with a `// best effort rollback` comment.
 
+### DeepSource "unhandled error" in `lsLFSObjects` (internal/app/testenv_test.go)
+
+- The flagged spot was the bare `filepath.Walk(root, func(...) error {...})` call (testenv_test.go:153). Note for
+  future sessions: this toolchain's `path/filepath` is not upstream-shaped — `Walk(root, WalkFunc)` **returns
+  `error`** (non-nil stops the walk) and `WalkFunc` is `func(path, fs.FileInfo, err) error`, so discarding the call
+  really is dropping an error, not just an int count.
+- Fixed in place, behavior identical: the call result now goes to `walkErr`, and a non-nil value fails the test
+  (`e.t.Fatalf("walk %s: %v", root, walkErr)`) instead of asserting against a truncated listing. The visitor still
+  swallows per-entry errors, so a missing `workdir/.git/lfs/objects` root keeps returning the empty list as before (its
+  only caller, integration_test.go:718, expects a non-empty list there anyway).
+- Repo convention stays "handle, don't suppress" (see commit c8f76d4 turning a bare `fmt.Fprintf` into `_, _ =`);
+  explicit discards (`entries, _ := os.ReadDir(dir)` in report/config/integration tests) are left alone.
+- Verified: `gofmt -l -e` clean, `go vet ./internal/app` clean, `go test ./...` all green, LF endings preserved.
+
 ## Session log — 2026-10-30
 
 ## Project
