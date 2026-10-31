@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -70,7 +71,7 @@ func Parse(args []string, errOut io.Writer) (Options, error) {
 	fs.BoolVarP(&o.Version, "version", "V", false, "print the version and exit")
 
 	if err := fs.Parse(args); err != nil {
-		if err == pflag.ErrHelp {
+		if errors.Is(err, pflag.ErrHelp) {
 			o.Help = true
 			return o, nil
 		}
@@ -195,5 +196,5 @@ Examples:
 
 // Usage writes the full help text.
 func Usage(w io.Writer) {
-	fmt.Fprint(w, usageTemplate)
+	_, _ = fmt.Fprint(w, usageTemplate)
 }
