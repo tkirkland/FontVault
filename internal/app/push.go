@@ -123,15 +123,21 @@ func (a *App) runPushPhase(ctx context.Context, st *runState, sync bool) (int, *
 	a.pushPhaseOK = true
 
 	errs = append(errs, res.errors_...)
+	// Local-duplicate keys skipped while resolving duplicates belong in this
+	// report exactly as compare lists them; their reasons also feed the
+	// exit-2 auto-skip tally. The two lists are disjoint by construction:
+	// skipped keys are absent from st.reps, so push never prompts them and
+	// res.skipped can never hold them.
+	skippedAll := append(append([]report.Entry{}, res.skipped...), st.localConflictSkips...)
 	skippedAuto := 0
-	for _, e := range res.skipped {
+	for _, e := range skippedAll {
 		if isAutoSkipReason(e.Reason) {
 			skippedAuto++
 		}
 	}
 	rep.AddSection(report.SectionAdded, fontEntries(res.added))
 	rep.AddSection(report.SectionReplacedRepo, fontEntries(res.replaced))
-	rep.AddSection(report.SectionConflictsSkipped, res.skipped)
+	rep.AddSection(report.SectionConflictsSkipped, skippedAll)
 	rep.AddSection(report.SectionExcluded, excluded)
 	rep.AddSection(report.SectionErrors, errs)
 	rep.AddCountSection(report.SectionSkippedFormats, st.scanRes.Skipped)
