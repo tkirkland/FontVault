@@ -36,7 +36,7 @@ func (a *App) runPull(ctx context.Context, st *runState, useRepo map[string]*wor
 	errs = append(errs, scanErrorEntries(st.scanRes)...)
 
 	// Local copy of each key: the same Font feeds the conflict prompt and the
-	// replace flow, so what the user saw and what gets deleted cannot drift
+	// replacement flow, so what the user saw and what gets deleted cannot drift
 	// apart.
 	localByKey := map[string]*fonts.Font{}
 	maps.Copy(localByKey, st.reps)
@@ -53,7 +53,7 @@ func (a *App) runPull(ctx context.Context, st *runState, useRepo map[string]*wor
 		return a.finishPull(rep, st, installed, replaced, skipped, errs), rep
 	}
 
-	// The installer needs the install dir to exist.
+	// The installer needs the installation dir to exist.
 	if err := a.ensureInstallDir(); err != nil {
 		return a.fail("%v", err), nil
 	}
@@ -166,7 +166,7 @@ func sortedTargetKeys(targets map[string]*pullTarget) []string {
 	return keys
 }
 
-// printPullDryRun lists the installs this run would make. Nothing is written
+// printPullDryRun lists the installations this run would make. Nothing is written
 // and no install dir is created, because the caller returns before the
 // installer exists.
 func (a *App) printPullDryRun(keys []string, targets map[string]*pullTarget) {
@@ -222,7 +222,7 @@ func (a *App) pullOne(ctx context.Context, st *runState, installer install.Insta
 	if err != nil {
 		return err
 	}
-	// Write the temp file inside the install dir so the final rename is
+	// Write the temp file inside the installation dir so the final rename is
 	// atomic.
 	tmpName, err := a.writePullTemp(blob)
 	if err != nil {
