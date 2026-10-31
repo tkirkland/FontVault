@@ -36,7 +36,7 @@ func (a *App) runSync(ctx context.Context, st *runState) (int, *report.Report) {
 		rep.Sections = append(rep.Sections, s)
 	}
 	if a.Opts.DryRun {
-		fmt.Fprintf(a.Stdout, "dry-run: sync would run push then pull\n")
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: sync would run push then pull\n")
 	}
 	if pullCode == ExitCompleted || pushCode == ExitCompleted {
 		return ExitCompleted, rep
