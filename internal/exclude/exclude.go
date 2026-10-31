@@ -106,41 +106,59 @@ func Apply(fontList []*fonts.Font, systemSource bool, sysOSDefaultHashes map[str
 	out := make([]Decision, 0, len(fontList))
 	for _, f := range fontList {
 		d := Decision{Font: f}
-
 		if systemSource {
-			if classifier == nil {
-				d.Excluded = true
-				d.Reason = ReasonOSDefault + " (no package manager or owner check available)"
-			} else {
-				osDefault, err := classifier.IsOSDefault(f.RealPath)
-				if err != nil {
-					d.Excluded = true
-					d.Reason = fmt.Sprintf("%s: %v", ReasonOSDefaultUnreadable, err)
-				} else if osDefault {
-					d.Excluded = true
-					d.Protected = true
-					d.Reason = fmt.Sprintf("%s (%s)", ReasonOSDefault, classifier.Name())
-				}
-			}
+			classifySystemFont(&d, f, classifier)
 		} else {
-			if sysScanFailed {
-				d.Excluded = true
-				d.Reason = ReasonSystemScanUnavailable
-			} else if sysOSDefaultHashes[f.SHA256] {
-				d.Excluded = true
-				d.Reason = ReasonMatchesOSDefault
-			}
+			classifyUserFont(&d, f, sysOSDefaultHashes, sysScanFailed)
 		}
-
-		if !d.Excluded && xf != nil {
-			if xf.Hashes[f.SHA256] || xf.Families[strings.ToLower(f.Family)] {
-				d.Excluded = true
-				d.Reason = ReasonExcludedByFile
-			}
-		}
+		applyExclusionFile(&d, f, xf)
 		out = append(out, d)
 	}
 	return out
+}
+
+// classifySystemFont applies the OS-default rule to a system-source font:
+// excluded when it is an OS default (and protected), or fail closed when the
+// status cannot be determined.
+func classifySystemFont(d *Decision, f *fonts.Font, classifier OSClassifier) {
+	if classifier == nil {
+		d.Excluded = true
+		d.Reason = ReasonOSDefault + " (no package manager or owner check available)"
+		return
+	}
+	osDefault, err := classifier.IsOSDefault(f.RealPath)
+	if err != nil {
+		d.Excluded = true
+		d.Reason = fmt.Sprintf("%s: %v", ReasonOSDefaultUnreadable, err)
+	} else if osDefault {
+		d.Excluded = true
+		d.Protected = true
+		d.Reason = fmt.Sprintf("%s (%s)", ReasonOSDefault, classifier.Name())
+	}
+}
+
+// classifyUserFont applies the user-source rule: excluded when the system scan
+// failed (fail closed) or the font's hash matches an OS-default system font.
+func classifyUserFont(d *Decision, f *fonts.Font, sysOSDefaultHashes map[string]bool, sysScanFailed bool) {
+	if sysScanFailed {
+		d.Excluded = true
+		d.Reason = ReasonSystemScanUnavailable
+	} else if sysOSDefaultHashes[f.SHA256] {
+		d.Excluded = true
+		d.Reason = ReasonMatchesOSDefault
+	}
+}
+
+// applyExclusionFile layers the -x file rule on top, only for fonts the source
+// rules did not already exclude.
+func applyExclusionFile(d *Decision, f *fonts.Font, xf *ExclusionFile) {
+	if d.Excluded || xf == nil {
+		return
+	}
+	if xf.Hashes[f.SHA256] || xf.Families[strings.ToLower(f.Family)] {
+		d.Excluded = true
+		d.Reason = ReasonExcludedByFile
+	}
 }
 
 // ProtectionStatus reports whether a local font must be protected from
