@@ -180,21 +180,21 @@ type fakeGitHub struct {
 	createCalls int
 }
 
-func (f *fakeGitHub) CurrentUser(ctx context.Context) (string, error) {
+func (f *fakeGitHub) CurrentUser(_ context.Context) (string, error) {
 	if f.userErr != nil {
 		return "", f.userErr
 	}
 	return f.login, nil
 }
 
-func (f *fakeGitHub) RepoExists(ctx context.Context, owner, name string) (bool, error) {
+func (f *fakeGitHub) RepoExists(_ context.Context, _, _ string) (bool, error) {
 	if f.existsErr != nil {
 		return false, f.existsErr
 	}
 	return f.exists, nil
 }
 
-func (f *fakeGitHub) CreateRepo(ctx context.Context, name string, private bool) error {
+func (f *fakeGitHub) CreateRepo(_ context.Context, _ string, _ bool) error {
 	f.createCalls++
 	return f.createErr
 }
@@ -277,17 +277,17 @@ func (p *fakePlatform) FontSources(source string) (FontSources, error) {
 	return FontSources{}, fmt.Errorf("bad source %q", source)
 }
 
-func (p *fakePlatform) InstallDir(source string) (string, error) {
+func (p *fakePlatform) InstallDir(_ string) (string, error) {
 	return p.env.install, nil
 }
 
 func (p *fakePlatform) Classifier() exclude.OSClassifier { return p.classifier }
 
-func (p *fakePlatform) NewInstaller(system bool, installDir string) install.Installer {
+func (p *fakePlatform) NewInstaller(_ bool, _ string) install.Installer {
 	return p.installer
 }
 
-func (p *fakePlatform) CheckPullPrereqs(source, installDir string) error { return nil }
+func (p *fakePlatform) CheckPullPrereqs(_ string, _ string) error { return nil }
 
 // ---- app runner ------------------------------------------------------------
 
