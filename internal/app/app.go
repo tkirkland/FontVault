@@ -371,7 +371,7 @@ func (a *App) resolveAppDir() int {
 	if err := checkDirWritable(a.appDir); err != nil {
 		return a.preflightFail("app dir %s is not writable; the cfg and reports are stored there: %v", a.appDir, err)
 	}
-	a.cfgPath = filepath.Join(a.appDir, "fontvault.cfg")
+	a.cfgPath = config.DefaultPath(a.appDir)
 	a.reportPath = filepath.Join(a.appDir, report.Filename(a.Clock()))
 	return ExitOK
 }
