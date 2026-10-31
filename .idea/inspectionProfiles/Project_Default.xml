@@ -4,6 +4,7 @@
     <inspection_tool class="GoResourceLeak" enabled="true" level="WARNING" enabled_by_default="true">
       <functions>
         <function importPath="os" name="OpenFile" />
+        <function importPath="fontvault/internal/app" name="fontDirFor" />
       </functions>
     </inspection_tool>
   </profile>
