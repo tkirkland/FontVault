@@ -133,29 +133,19 @@ func (c *packageClassifier) queryRpm(paths map[string]bool) (map[string]bool, er
 	out := map[string]bool{}
 	for _, batch := range c.batch(paths) {
 		text := c.run(append([]string{"-qf"}, batch...)...)
-		for _, line := range strings.Split(text, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
+		for _, line := range outputLines(text) {
 			if idx := strings.Index(line, " is not owned by any package"); idx > 0 {
 				p := strings.TrimSpace(strings.TrimPrefix(line[:idx], "file"))
 				out[p] = false
 				continue
 			}
 			// "<path> is owned by <pkg>-<version>"
-			if idx := strings.Index(line, " is owned by "); idx > 0 {
-				out[strings.TrimSpace(line[:idx])] = true
+			if p := ownedPath(line); p != "" {
+				out[p] = true
 			}
 		}
 	}
-	for p := range paths {
-		if _, ok := out[p]; !ok {
-			// No line matched: treat as unknown, fail closed.
-			return nil, fmt.Errorf("rpm query did not answer for %s", p)
-		}
-	}
-	return out, nil
+	return requireAnswered(out, paths, "rpm")
 }
 
 // queryPacman runs `pacman -Qo <path>...`; "error: No package owns <path>"
@@ -164,13 +154,9 @@ func (c *packageClassifier) queryPacman(paths map[string]bool) (map[string]bool,
 	out := map[string]bool{}
 	for _, batch := range c.batch(paths) {
 		text := c.run(append([]string{"-Qo"}, batch...)...)
-		for _, line := range strings.Split(text, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			if idx := strings.Index(line, " is owned by "); idx > 0 {
-				out[strings.TrimSpace(line[:idx])] = true
+		for _, line := range outputLines(text) {
+			if p := ownedPath(line); p != "" {
+				out[p] = true
 				continue
 			}
 			if idx := strings.Index(line, "error: No package owns "); idx >= 0 {
@@ -178,12 +164,7 @@ func (c *packageClassifier) queryPacman(paths map[string]bool) (map[string]bool,
 			}
 		}
 	}
-	for p := range paths {
-		if _, ok := out[p]; !ok {
-			return nil, fmt.Errorf("pacman query did not answer for %s", p)
-		}
-	}
-	return out, nil
+	return requireAnswered(out, paths, "pacman")
 }
 
 // queryApk runs `apk info --who-owns <path>...`.
@@ -191,14 +172,10 @@ func (c *packageClassifier) queryApk(paths map[string]bool) (map[string]bool, er
 	out := map[string]bool{}
 	for _, batch := range c.batch(paths) {
 		text := c.run(append([]string{"info", "--who-owns"}, batch...)...)
-		for _, line := range strings.Split(text, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
+		for _, line := range outputLines(text) {
 			// "<path> is owned by <pkg>-<version>"
-			if idx := strings.Index(line, " is owned by "); idx > 0 {
-				out[strings.TrimSpace(line[:idx])] = true
+			if p := ownedPath(line); p != "" {
+				out[p] = true
 				continue
 			}
 			// "<path>: No such file or directory" (unowned)
@@ -212,9 +189,36 @@ func (c *packageClassifier) queryApk(paths map[string]bool) (map[string]bool, er
 			}
 		}
 	}
+	return requireAnswered(out, paths, "apk")
+}
+
+// outputLines trims command output and drops empty lines.
+func outputLines(text string) []string {
+	var ls []string
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			ls = append(ls, l)
+		}
+	}
+	return ls
+}
+
+// ownedPath extracts the path from "<path> is owned by <pkg>-<version>" output
+// lines; "" means the line does not have that shape.
+func ownedPath(line string) string {
+	if idx := strings.Index(line, " is owned by "); idx > 0 {
+		return strings.TrimSpace(line[:idx])
+	}
+	return ""
+}
+
+// requireAnswered fails the whole batch when the package manager left any
+// path unanswered (fail closed).
+func requireAnswered(out, paths map[string]bool, manager string) (map[string]bool, error) {
 	for p := range paths {
 		if _, ok := out[p]; !ok {
-			return nil, fmt.Errorf("apk query did not answer for %s", p)
+			return nil, fmt.Errorf("%s query did not answer for %s", manager, p)
 		}
 	}
 	return out, nil
