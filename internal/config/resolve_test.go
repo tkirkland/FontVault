@@ -53,17 +53,7 @@ func TestResolveTokenOrder(t *testing.T) {
 	ghToken := func() (string, error) { return "gh-token", nil }
 	ghFail := func() (string, error) { return "", errors.New("gh not authenticated") }
 
-	tests := []struct {
-		name       string
-		switchTok  string
-		envName    string
-		env        map[string]string
-		cfgToken   string
-		gh         func() (string, error)
-		want       string
-		wantSource string
-		wantErr    bool
-	}{
+	tests := []tokenCase{
 		{"switch wins", "cli-token", "GITHUB_TOKEN", map[string]string{"GITHUB_TOKEN": "env-token"}, "cfg-token", ghToken, "cli-token", "switch", false},
 		{"env second", "", "GITHUB_TOKEN", map[string]string{"GITHUB_TOKEN": "env-token"}, "cfg-token", ghToken, "env-token", "env GITHUB_TOKEN", false},
 		{"cfg third", "", "GITHUB_TOKEN", nil, "cfg-token", ghToken, "cfg-token", "cfg", false},
@@ -75,24 +65,50 @@ func TestResolveTokenOrder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, src, err := ResolveToken(tt.switchTok, tt.envName, envFrom(tt.env), tt.cfgToken, tt.gh)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
-				for _, src := range []string{"-t/--token", "environment variable", "fontvault.cfg", "gh auth login"} {
-					if !strings.Contains(err.Error(), src) {
-						t.Errorf("error does not mention %q: %v", src, err)
-					}
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != tt.want || src != tt.wantSource {
-				t.Errorf("got (%q, %q), want (%q, %q)", got, src, tt.want, tt.wantSource)
-			}
+			checkTokenOutcome(t, tt, got, src, err)
 		})
+	}
+}
+
+// tokenCase is one ResolveToken scenario for TestResolveTokenOrder.
+type tokenCase struct {
+	name       string
+	switchTok  string
+	envName    string
+	env        map[string]string
+	cfgToken   string
+	gh         func() (string, error)
+	want       string
+	wantSource string
+	wantErr    bool
+}
+
+// checkTokenOutcome compares one case's result: failure cases must name
+// every token source, success cases must match token and source.
+func checkTokenOutcome(t *testing.T, tt tokenCase, got, src string, err error) {
+	t.Helper()
+	if tt.wantErr {
+		checkTokenFailure(t, err)
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != tt.want || src != tt.wantSource {
+		t.Errorf("got (%q, %q), want (%q, %q)", got, src, tt.want, tt.wantSource)
+	}
+}
+
+// checkTokenFailure asserts the error mentions each source the user could set.
+func checkTokenFailure(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, src := range []string{"-t/--token", "environment variable", "fontvault.cfg", "gh auth login"} {
+		if !strings.Contains(err.Error(), src) {
+			t.Errorf("error does not mention %q: %v", src, err)
+		}
 	}
 }
 
