@@ -150,7 +150,11 @@ func (e *testEnv) lsLFSObjects() []string {
 	e.t.Helper()
 	var out []string
 	root := filepath.Join(e.workdir, ".git", "lfs", "objects")
-	filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+	// The visitor swallows per-entry errors (a missing objects dir simply means
+	// "no LFS objects"), so a non-nil result from Walk is a real failure and
+	// the listing would be incomplete: fail the test instead of asserting
+	// against a partial answer.
+	walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -159,6 +163,9 @@ func (e *testEnv) lsLFSObjects() []string {
 		}
 		return nil
 	})
+	if walkErr != nil {
+		e.t.Fatalf("walk %s: %v", root, walkErr)
+	}
 	return out
 }
 
