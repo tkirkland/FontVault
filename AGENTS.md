@@ -68,6 +68,19 @@ while preserving behavior.
 - Verified again: `gofmt -l -e` clean (used `gofmt -w` once to fix the `pullJob` field alignment), `go vet` clean,
   pull/sync tests green, full `go test ./...` green.
 
+### DeepSource "unhandled error" in `writePullTemp`, same session
+
+- The flagged spots were the bare `tmp.Close()` calls on the write-failure and sync-failure paths (pre-existing
+  since the initial commit, surfaced by the split). Both now call `a.closeTempAfterFailure(tmp)`, which closes the
+  handle and `a.Log.Warn`s a close failure instead of dropping it; the caller's write/sync error stays the reported
+  cause, the close still happens exactly once per path, and the file is still left for `addTemp`'s cleanup at run
+  end (app.go:186 logs those removals). Messages, control flow and exit codes unchanged.
+- Repo convention the user restored by hand: writes to `a.Stdout`/`a.Stderr` use `_, _ = fmt.Fprintf(...)` — use that
+  form in this package (push.go already does).
+- Same kind of discard still present, deliberately not touched: `removeTempQuietly`'s `_ = err` (best-effort, the
+  run's `addTemp` cleanup reports removal failures). `internal/install/install.go`'s `removeQuietly` has the same
+  shape with a `// best effort rollback` comment.
+
 ## Session log — 2026-10-30
 
 ## Project
