@@ -23,47 +23,56 @@ func (windowsPlatform) OSInfo() string { return osinfo.String() }
 const fontsRegPath = `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts`
 
 func (windowsPlatform) FontSources(source string) (FontSources, error) {
-	var dirs []string
-	var hive registry.Key
+	fontDir, hive, err := fontDirFor(source)
+	if err != nil {
+		return FontSources{}, err
+	}
+	dirs := []string{fontDir}
+	return FontSources{Dirs: dirs, Recursive: false, ExtraFiles: registryFontFiles(hive, dirs)}, nil
+}
+
+// fontDirFor maps a source to its font directory and the registry hive
+// whose Fonts value lists the fonts installed for that source.
+func fontDirFor(source string) (string, registry.Key, error) {
 	switch source {
 	case "system":
 		windir := os.Getenv("WINDIR")
 		if windir == "" {
-			return FontSources{}, fmt.Errorf("WINDIR is not set")
+			return "", 0, fmt.Errorf("WINDIR is not set")
 		}
-		dirs = []string{filepath.Join(windir, "Fonts")}
-		hive = registry.LOCAL_MACHINE
+		return filepath.Join(windir, "Fonts"), registry.LOCAL_MACHINE, nil
 	case "user":
 		local := os.Getenv("LOCALAPPDATA")
 		if local == "" {
-			return FontSources{}, fmt.Errorf("LOCALAPPDATA is not set")
+			return "", 0, fmt.Errorf("LOCALAPPDATA is not set")
 		}
-		dirs = []string{filepath.Join(local, "Microsoft", "Windows", "Fonts")}
-		hive = registry.CURRENT_USER
-	default:
-		return FontSources{}, fmt.Errorf("invalid source %q", source)
+		return filepath.Join(local, "Microsoft", "Windows", "Fonts"), registry.CURRENT_USER, nil
 	}
+	return "", 0, fmt.Errorf("invalid source %q", source)
+}
 
+// registryFontFiles collects the font files named by the registry Fonts
+// value for a hive: one file per non-empty string value, resolved through
+// registryFontFile.
+func registryFontFiles(hive registry.Key, dirs []string) []string {
 	var extra []string
-	if k, err := registry.OpenKey(hive, fontsRegPath, registry.QUERY_VALUE); err == nil {
-		names, err := k.ReadValueNames(0)
-		k.Close()
-		if err == nil {
-			for _, name := range names {
-				kk, err := registry.OpenKey(hive, fontsRegPath, registry.QUERY_VALUE)
-				if err != nil {
-					continue
-				}
-				data, _, err := kk.GetStringValue(name)
-				kk.Close()
-				if err != nil || data == "" {
-					continue
-				}
-				extra = append(extra, registryFontFile(data, dirs)...)
-			}
-		}
+	k, err := registry.OpenKey(hive, fontsRegPath, registry.QUERY_VALUE)
+	if err != nil {
+		return extra
 	}
-	return FontSources{Dirs: dirs, Recursive: false, ExtraFiles: extra}, nil
+	defer func() { _ = k.Close() }() // read-only handle; close error is not actionable
+	names, err := k.ReadValueNames(0)
+	if err != nil {
+		return extra
+	}
+	for _, name := range names {
+		data, _, err := k.GetStringValue(name)
+		if err != nil || data == "" {
+			continue
+		}
+		extra = append(extra, registryFontFile(data, dirs)...)
+	}
+	return extra
 }
 
 // registryFontFile turns a registry value data into scannable files.
@@ -88,25 +97,16 @@ func registryFontFile(data string, dirs []string) []string {
 }
 
 func (windowsPlatform) InstallDir(source string) (string, error) {
-	switch source {
-	case "system":
-		windir := os.Getenv("WINDIR")
-		if windir == "" {
-			return "", fmt.Errorf("WINDIR is not set")
-		}
-		return filepath.Join(windir, "Fonts"), nil
-	case "user":
-		local := os.Getenv("LOCALAPPDATA")
-		if local == "" {
-			return "", fmt.Errorf("LOCALAPPDATA is not set")
-		}
-		dir := filepath.Join(local, "Microsoft", "Windows", "Fonts")
+	dir, _, err := fontDirFor(source)
+	if err != nil {
+		return "", err
+	}
+	if source == "user" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("create font dir %s: %w", dir, err)
 		}
-		return dir, nil
 	}
-	return "", fmt.Errorf("invalid source %q", source)
+	return dir, nil
 }
 
 func (windowsPlatform) Classifier() exclude.OSClassifier {
@@ -117,8 +117,8 @@ func (windowsPlatform) NewInstaller(system bool, installDir string) install.Inst
 	return install.New(system, installDir)
 }
 
-// CheckPullPrereqs: system pulls require an elevated token; user pulls
-// require a writable install dir.
+// CheckPullPrereqs enforces pull prerequisites: system pulls require an
+// elevated token; user pulls require a writable install dir.
 func (windowsPlatform) CheckPullPrereqs(source, installDir string) error {
 	if source == "system" {
 		if err := install.CheckSystemPrereqs(); err != nil {
