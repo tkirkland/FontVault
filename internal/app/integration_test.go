@@ -672,7 +672,9 @@ func TestPruneNotRunAfterFailedRun(t *testing.T) {
 		Vendor:         "ZZZZ",
 	}
 	orphanPath := "fonts/zeta/zeta-regular-" + fonts.HashKey("Zeta-Regular|ZZZZ")[:8] + ".ttf"
-	os.MkdirAll(filepath.Dir(filepath.Join(seed, orphanPath)), 0o755)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(seed, orphanPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(seed, orphanPath), testfont.Build(t, orphanSpec), 0o644); err != nil {
 		t.Fatal(err)
 	}
