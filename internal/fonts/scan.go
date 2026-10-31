@@ -74,15 +74,15 @@ func Scan(opts ScanOptions) ScanResult {
 }
 
 func scanDir(dir string, recursive bool, visitedDirs, visitedFiles map[string]bool, res *ScanResult) {
-	real, err := filepath.EvalSymlinks(dir)
+	realPath, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		res.DirErrors = append(res.DirErrors, PathError{Path: dir, Err: fmt.Errorf("resolve font dir: %w", err)})
 		return
 	}
-	if visitedDirs[real] {
+	if visitedDirs[realPath] {
 		return
 	}
-	visitedDirs[real] = true
+	visitedDirs[realPath] = true
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -119,20 +119,20 @@ func scanFile(path string, visitedFiles map[string]bool, res *ScanResult) {
 	if ext != ".ttf" && ext != ".otf" {
 		return
 	}
-	real, err := filepath.EvalSymlinks(path)
+	realPath, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		res.Errors = append(res.Errors, PathError{Path: path, Err: fmt.Errorf("resolve symlink: %w", err)})
 		return
 	}
-	if visitedFiles[real] {
+	if visitedFiles[realPath] {
 		return
 	}
-	visitedFiles[real] = true
+	visitedFiles[realPath] = true
 	f, err := Inspect(path)
 	if err != nil {
 		res.Errors = append(res.Errors, PathError{Path: path, Err: fmt.Errorf("invalid font: %w", err)})
 		return
 	}
-	f.RealPath = real
+	f.RealPath = realPath
 	res.Fonts = append(res.Fonts, f)
 }
