@@ -24,6 +24,50 @@ while preserving behavior.
 - Verified: `gofmt -l -e` clean, `go vet` clean, `go test ./...` all pass, LF endings preserved. The edit tool handled
   the multi-line Go payload fine this session (no Python patch scripts needed).
 
+### `runPull` complexity (internal/app/pull.go)
+
+- Same goal, same pattern: `runPull` (was ~138 lines: three decision passes + dry-run block + install loop + a
+  report tail that existed twice) is now a flat body — local lookup → `a.pullTargets` → `sortedTargetKeys` → dry-run
+  return → installer → `a.applyPullTargets` → `installer.Finish` → `a.finishPull`. All helpers sit immediately
+  below it in `pull.go`:
+    - `pullTargets(st, localByKey, useRepo) (map[string]*pullTarget, []report.Entry)` — the three passes (missing
+      keys / local-vs.-repo conflict / sync "use repo"), returning targets plus the declined conflicts as
+      skipped entries.
+    - `a.pullConflict(local, m, classifier) (*pullTarget, string)` — one conflict: protection check → `-y` →
+      prompt; `nil` + reason means skipped. The caller builds `conflictEntry(local, m, reason)` (the old
+      pre-built `entry` plus `entry.Reason = …` mutation is gone — same entry, constructed once).
+    - `sortedTargetKeys`, `a.printPullDryRun`, `a.applyPullTargets` (forwards `pullOne`'s existing pointer-list
+      params), `a.finishPull(rep, st, …) int` — one shared tail for the dry-run and real paths.
+- `countAutoSkips(skipped)` added in `modes.go` next to `isAutoSkipReason`; pull uses it, while `push.go`/`compare.go`
+  keep their inline loops (not rewired this session, same "keep the diff focused" rule).
+- `pullOne` (outside the selection) and `runPull`'s signature are untouched, so `sync.go:23` and `modes.go:67`
+  are untouched.
+- Behavior identical by construction: report section order preserved (matters for sync's merged report), nil
+  `installed`/`replaced` in the dry-run path as before, `a.Platform.Classifier()` still taken once per run,
+  `pullPhaseOK` and `finalCode` semantics unchanged. Verified: `gofmt -l -e` clean, `go vet ./...` clean,
+  `go test ./internal/app -run 'Pull|Sync|Duplicate'` green, then full `go test ./...` green; LF endings preserved.
+
+### `pullOne` complexity (internal/app/pull.go), same session
+
+- Second pass on the file: `pullOne` (was ~110 lines: fetch+verify, temp-file write, missing-install branch,
+  replace-local branch, four shared report lists) is now ~15 lines — `newPullJob` → `pullBlob` → `writePullTemp`
+  → `defer removeTempQuietly` → `installMissingFont` / `replaceLocalFont`.
+- Introduced `pullJob` (right below `pullOne`): `{t, meta, metaName, target, installed, replaced, skipped, errs}`
+  bundles the target with the installer names and the four report lists, so the flows take
+  `(ctx, installer, job, tmpName)` instead of nine parameters. The lists are held **by pointer** as before, so the
+  job is passed by value and appends still reach `runPull`'s slices. `a.newPullJob` derives `meta.Filename` and
+  `target` from one `filepath.Base(m.RepoPath)`, so a skipped entry's path and the installer's path cannot drift.
+- `a.pullBlob` (cat-file | lfs smudge + hash + parse verify; hex digest computed once instead of twice),
+  `a.writePullTemp` (create/addTemp/write/sync/close; still does NOT remove the file on failure — same as the
+  original, where the `defer` was registered only after a successful close, so cleanup is `addTemp` at run end),
+  `a.installMissingFont`, `a.replaceLocalFont`, and `recordSkipped(job, reason)` which replaces the four
+  hand-written `*skipped = append(*skipped, conflictEntryForPath(target, m, "registry name collision"))` sites (the
+  reason strings stay literal).
+- `pullOne`'s own signature is unchanged, so `applyPullTargets`'s call is untouched; `conflictEntryForPath` and
+  `removeTempQuietly` are untouched.
+- Verified again: `gofmt -l -e` clean (used `gofmt -w` once to fix the `pullJob` field alignment), `go vet` clean,
+  pull/sync tests green, full `go test ./...` green.
+
 ## Session log — 2026-10-30
 
 ## Project
