@@ -104,65 +104,95 @@ func TestFirstPushToEmptyRepo(t *testing.T) {
 	env := newTestEnv(t)
 	plat := env.newPlat(t)
 	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	env.writeFont(env.fontDir, "bravo.otf", func() testfont.Spec {
-		s := fontSpecB()
-		s.OTTO = true
-		return s
-	}())
+	bravo := fontSpecB()
+	bravo.OTTO = true
+	env.writeFont(env.fontDir, "bravo.otf", bravo)
 
 	res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat)
 	if res.code != ExitOK {
 		t.Fatalf("exit = %d (stderr: %s)", res.code, res.stderr)
 	}
 
-	// Two commits: attributes init, then fonts.
+	checkInitThenFontsCommits(t, env, "Add 2 fonts")
+	checkLFSAttributes(t, env, "*.ttf", "*.otf")
+	checkFontBlobsArePointers(t, env, 2)
+	checkManifestFileCount(t, env, 2)
+	checkWorktreeHasNoFonts(t, env)
+	checkPushReportWritten(t, env)
+}
+
+// checkInitThenFontsCommits asserts the remote history is exactly two
+// commits: the .gitattributes init, then the fonts commit addSubject.
+func checkInitThenFontsCommits(t *testing.T, env *testEnv, addSubject string) {
+	t.Helper()
 	log := strings.Split(env.bare("log", "--format=%s", "refs/heads/main"), "\n")
 	if len(log) != 2 {
 		t.Fatalf("commits = %v", log)
 	}
-	if !strings.Contains(log[0], "Add 2 fonts") || !strings.Contains(log[1], "Initialize fontvault") {
+	if !strings.Contains(log[0], addSubject) || !strings.Contains(log[1], "Initialize fontvault") {
 		t.Errorf("commit messages = %v", log)
 	}
+}
 
-	// .gitattributes routes both extensions through LFS.
+// checkLFSAttributes asserts .gitattributes routes each extension through LFS.
+func checkLFSAttributes(t *testing.T, env *testEnv, extensions ...string) {
+	t.Helper()
 	attrs := env.show(env.head(), ".gitattributes")
-	if !strings.Contains(attrs, "*.ttf filter=lfs diff=lfs merge=lfs -text") ||
-		!strings.Contains(attrs, "*.otf filter=lfs diff=lfs merge=lfs -text") {
-		t.Errorf(".gitattributes = %q", attrs)
+	for _, ext := range extensions {
+		want := ext + " filter=lfs diff=lfs merge=lfs -text"
+		if !strings.Contains(attrs, want) {
+			t.Errorf(".gitattributes missing %q: %q", want, attrs)
+		}
 	}
+}
 
-	// Font blobs are LFS pointers.
+// checkFontBlobsArePointers asserts exactly want font blobs are in the tree
+// and every one of them is an LFS pointer.
+func checkFontBlobsArePointers(t *testing.T, env *testEnv, want int) {
+	t.Helper()
+	head := env.head()
 	tree := env.bare("ls-tree", "-r", "--name-only", "refs/heads/main", "--", "fonts")
 	seen := 0
 	for _, p := range strings.Split(tree, "\n") {
-		if strings.HasSuffix(p, ".ttf") || strings.HasSuffix(p, ".otf") {
-			seen++
-			blob := env.show(env.head(), p)
-			if !strings.HasPrefix(blob, "version https://git-lfs.github.com/spec/v1") {
-				t.Errorf("blob %s is not an LFS pointer: %q", p, blob)
-			}
+		if !strings.HasSuffix(p, ".ttf") && !strings.HasSuffix(p, ".otf") {
+			continue
+		}
+		seen++
+		blob := env.show(head, p)
+		if !strings.HasPrefix(blob, "version https://git-lfs.github.com/spec/v1") {
+			t.Errorf("blob %s is not an LFS pointer: %q", p, blob)
 		}
 	}
-	if seen != 2 {
-		t.Errorf("font blobs in tree = %d, want 2", seen)
+	if seen != want {
+		t.Errorf("font blobs in tree = %d, want %d", seen, want)
 	}
+}
 
-	// Manifests are pushed.
+// checkManifestFileCount asserts the manifest directory holds want files.
+func checkManifestFileCount(t *testing.T, env *testEnv, want int) {
+	t.Helper()
 	manifests := env.bare("ls-tree", "-r", "--name-only", "refs/heads/main", "--", "manifest")
-	if len(strings.Split(manifests, "\n")) != 2 {
+	if len(strings.Split(manifests, "\n")) != want {
 		t.Errorf("manifest files = %q", manifests)
 	}
+}
 
-	// Sparse worktree contains no font files.
+// checkWorktreeHasNoFonts asserts the sparse worktree holds no font files.
+func checkWorktreeHasNoFonts(t *testing.T, env *testEnv) {
+	t.Helper()
 	if _, err := os.Stat(filepath.Join(env.workdir, "fonts")); !os.IsNotExist(err) {
 		t.Error("worktree still contains fonts/ after push")
 	}
+}
 
-	// The report was written.
+// checkPushReportWritten asserts the report shows push mode and the new commit.
+func checkPushReportWritten(t *testing.T, env *testEnv) {
+	t.Helper()
 	text := env.reportText()
-	if !strings.Contains(text, "mode: push") || !strings.Contains(text, "added to repo") ||
-		!strings.Contains(text, "new commit: "+env.head()) {
-		t.Errorf("report text = %q", text)
+	for _, want := range []string{"mode: push", "added to repo", "new commit: " + env.head()} {
+		if !strings.Contains(text, want) {
+			t.Errorf("report missing %q: %q", want, text)
+		}
 	}
 }
 
