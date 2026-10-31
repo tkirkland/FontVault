@@ -283,9 +283,9 @@ func (a *App) resolveDuplicates(list []*fonts.Font, mode string) (map[string]*fo
 			// re-runs, so no keyed dedup map is needed, unlike push's
 			// rebase retries)
 			skips = append(skips, entry)
-			// (compare lists these under Conflicts skipped and counts the
-			// automatic ones for exit code 2; push and pull build their own
-			// skipped lists, and pull reads neither list here)
+			// (compare and push list these under Conflicts skipped and count
+			// the automatic ones for exit code 2; pull builds its own skipped
+			// list and reads neither list here)
 			continue
 		}
 
