@@ -50,9 +50,7 @@ type File struct {
 type Kind int
 
 const (
-	// KindNone means the file is absent; reading it is not an error.
-	KindNone Kind = iota
-	KindBadMagic
+	KindBadMagic Kind = iota
 	KindBadVersion
 	KindAuthFailure
 	KindBadJSON
@@ -160,7 +158,8 @@ func Load(path string) (*File, error) {
 	}
 	f, err := Decrypt(data)
 	if err != nil {
-		if re, ok := err.(*ReadError); ok && re.Path == "" {
+		var re *ReadError
+		if errors.As(err, &re) && re.Path == "" {
 			re.Path = path
 		}
 		return nil, err
@@ -183,6 +182,6 @@ func Save(path string, f *File) error {
 
 // DefaultPath returns the cfg path in the directory containing the
 // executable (symlinks resolved).
-func DefaultPath(exePath string) string {
-	return filepath.Join(exePath, "fontvault.cfg")
+func DefaultPath(exeDir string) string {
+	return filepath.Join(exeDir, "fontvault.cfg")
 }
