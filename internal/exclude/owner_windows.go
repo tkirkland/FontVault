@@ -17,7 +17,7 @@ type ownerClassifier struct {
 	trustedInstaller *windows.SID
 }
 
-func newOSClassifier(logf func(format string, args ...any)) OSClassifier {
+func newOSClassifier(_ func(format string, args ...any)) OSClassifier {
 	ti, err := windows.StringToSid(trustedInstallerSID)
 	if err != nil {
 		// Cannot happen for a constant SID; fail closed below.
