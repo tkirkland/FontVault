@@ -379,13 +379,10 @@ func TestNonFastForwardResolvedByRetry(t *testing.T) {
 // TestPullInstallsOnlyMissingFonts: repo has A and B; only B is present
 // locally; pull installs only A.
 func TestPullInstallsOnlyMissingFonts(t *testing.T) {
-	env := newTestEnv(t)
-	plat := env.newPlat(t)
-	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	env.writeFont(env.fontDir, "bravo.ttf", fontSpecB())
-	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
-		t.Fatalf("push: %d (%s)", res.code, res.stderr)
-	}
+	env, plat := seededEnv(t, map[string]testfont.Spec{
+		"alpha.ttf": fontSpecA(),
+		"bravo.ttf": fontSpecB(),
+	})
 
 	// Locally, only Bravo remains.
 	if err := os.Remove(filepath.Join(env.fontDir, "alpha.ttf")); err != nil {
@@ -414,12 +411,7 @@ func TestPullInstallsOnlyMissingFonts(t *testing.T) {
 // local", the delete fails, the old font is re-registered and both copies
 // stay unchanged.
 func TestPullReplaceLocalRollbackOnDeleteFailure(t *testing.T) {
-	env := newTestEnv(t)
-	plat := env.newPlat(t)
-	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
-		t.Fatalf("push: %d (%s)", res.code, res.stderr)
-	}
+	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
 
 	// Local copy changes to different content.
 	localPath := filepath.Join(env.fontDir, "alpha.ttf")
@@ -459,12 +451,7 @@ func TestPullReplaceLocalRollbackOnDeleteFailure(t *testing.T) {
 
 // TestPullReplaceLocal: happy path replacement after an interactive "l".
 func TestPullReplaceLocal(t *testing.T) {
-	env := newTestEnv(t)
-	plat := env.newPlat(t)
-	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
-		t.Fatalf("push: %d (%s)", res.code, res.stderr)
-	}
+	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
 	localPath := filepath.Join(env.fontDir, "alpha.ttf")
 	if err := os.Remove(localPath); err != nil {
 		t.Fatal(err)
@@ -508,12 +495,7 @@ func TestPullReplaceLocal(t *testing.T) {
 // TestPullRollbackOnInjectedInstallFailure: a failing Install must leave no
 // file behind and be reported as a per-file error (exit 2).
 func TestPullRollbackOnInjectedInstallFailure(t *testing.T) {
-	env := newTestEnv(t)
-	plat := env.newPlat(t)
-	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
-		t.Fatalf("push: %d (%s)", res.code, res.stderr)
-	}
+	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
 	if err := os.Remove(filepath.Join(env.fontDir, "alpha.ttf")); err != nil {
 		t.Fatal(err)
 	}
@@ -538,12 +520,7 @@ func TestPullRollbackOnInjectedInstallFailure(t *testing.T) {
 // TestPullRegistryCollision: a colliding registration name is an
 // auto-skipped conflict (exit 2) and installs nothing.
 func TestPullRegistryCollision(t *testing.T) {
-	env := newTestEnv(t)
-	plat := env.newPlat(t)
-	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
-		t.Fatalf("push: %d (%s)", res.code, res.stderr)
-	}
+	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
 	if err := os.Remove(filepath.Join(env.fontDir, "alpha.ttf")); err != nil {
 		t.Fatal(err)
 	}
@@ -586,15 +563,7 @@ func TestSyncOrderingAndFatalPushSkipsPull(t *testing.T) {
 			t.Fatalf("sync: %d (stdout: %s, stderr: %s)", res.code, res.stdout, res.stderr)
 		}
 		// Pull ran after push and installed Charlie (missing locally).
-		if len(plat.installer.installed) != 1 ||
-			!strings.Contains(plat.installer.installed[0], "charlie-regular") {
-			t.Errorf("installed = %v, want Charlie after the push", plat.installer.installed)
-		}
-		text := env.reportText()
-		if !strings.Contains(text, "mode: sync") || !strings.Contains(text, "added to repo") ||
-			!strings.Contains(text, "installed locally") {
-			t.Errorf("sync report incomplete: %q", text)
-		}
+		checkSyncInstalledCharlie(t, env, plat)
 	})
 
 	t.Run("fatal push skips pull", func(t *testing.T) {
@@ -607,24 +576,44 @@ func TestSyncOrderingAndFatalPushSkipsPull(t *testing.T) {
 		if res.code != ExitFatal {
 			t.Fatalf("exit = %d, want %d (stderr: %s)", res.code, ExitFatal, res.stderr)
 		}
-		if len(plat.installer.installed) != 0 {
-			t.Errorf("pull must not run after fatal push: %v", plat.installer.installed)
-		}
-		if env.reportText() != "" {
-			t.Error("failed run must write no report")
-		}
+		checkPullSkippedNoReport(t, env, plat)
 	})
+}
+
+// checkSyncInstalledCharlie asserts the post-push pull phase ran: the
+// repo-only Charlie was installed and the report covers both phases.
+func checkSyncInstalledCharlie(t *testing.T, env *testEnv, plat *fakePlatform) {
+	t.Helper()
+	if len(plat.installer.installed) != 1 ||
+		!strings.Contains(plat.installer.installed[0], "charlie-regular") {
+		t.Errorf("installed = %v, want Charlie after the push", plat.installer.installed)
+	}
+	text := env.reportText()
+	for _, want := range []string{"mode: sync", "added to repo", "installed locally"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("sync report incomplete, missing %q: %q", want, text)
+		}
+	}
+}
+
+// checkPullSkippedNoReport asserts the pull phase never ran: nothing was
+// installed and no report was written.
+func checkPullSkippedNoReport(t *testing.T, env *testEnv, plat *fakePlatform) {
+	t.Helper()
+	if len(plat.installer.installed) != 0 {
+		t.Errorf("pull must not run after fatal push: %v", plat.installer.installed)
+	}
+	if env.reportText() != "" {
+		t.Error("failed run must write no report")
+	}
 }
 
 // TestCompareOutputForFixtureSet drives a fixture classification.
 func TestCompareOutputForFixtureSet(t *testing.T) {
-	env := newTestEnv(t)
-	plat := env.newPlat(t)
-	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
-	env.writeFont(env.fontDir, "bravo.ttf", fontSpecB())
-	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
-		t.Fatalf("push: %d (%s)", res.code, res.stderr)
-	}
+	env, plat := seededEnv(t, map[string]testfont.Spec{
+		"alpha.ttf": fontSpecA(),
+		"bravo.ttf": fontSpecB(),
+	})
 
 	// Local state: Alpha identical, Bravo modified (differs), Charlie new,
 	// a skipped-format file and an invalid font.
