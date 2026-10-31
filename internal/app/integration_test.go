@@ -221,6 +221,33 @@ func TestPushConflictUnderYesSkips(t *testing.T) {
 	}
 }
 
+// TestPushLocalDuplicateUnderYesSkipsAndReports: -y skips a local duplicate
+// key, lists it under Conflicts skipped and exits 2, like compare does.
+func TestPushLocalDuplicateUnderYesSkipsAndReports(t *testing.T) {
+	env := newTestEnv(t)
+	plat := env.newPlat(t)
+	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
+	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
+		t.Fatalf("first push: %d (%s)", res.code, res.stderr)
+	}
+	oldSHA := env.head()
+
+	// Same key, different content: a local duplicate, skipped under -y.
+	env.writeFont(env.fontDir, "alpha2.ttf", fontSpecA('x', 'y', 'z'))
+
+	res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat)
+	if res.code != ExitCompleted {
+		t.Fatalf("exit = %d, want %d (stderr: %s)", res.code, ExitCompleted, res.stderr)
+	}
+	if env.head() != oldSHA {
+		t.Error("skipped local duplicate must not create a commit")
+	}
+	text := env.reportText()
+	if !strings.Contains(text, "conflicts skipped") || !strings.Contains(text, "reason: -y") {
+		t.Errorf("report missing skipped local duplicate: %q", text)
+	}
+}
+
 // TestPushReplaceRepo: interactive "r" replaces the repo copy; the old LFS
 // pointer remains in git history.
 func TestPushReplaceRepo(t *testing.T) {
