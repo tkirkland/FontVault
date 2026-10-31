@@ -114,38 +114,56 @@ func TestSaveLoadAtomicAndMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if runtime.GOOS == "linux" {
-		fi, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if fi.Mode().Perm() != 0o600 {
-			t.Errorf("cfg mode = %o, want 0600", fi.Mode().Perm())
-		}
+		checkCfgMode(t, path)
 	}
+	got := loadCfg(t, path)
+	if got.Branch != "main" || got.Token != "abc" {
+		t.Fatalf("loaded = %+v", got)
+	}
+	checkNoLeftoverTemps(t, dir)
+	// Overwrite works.
+	if err := Save(path, &File{Branch: "dev", TokenEnv: "GH_PAT"}); err != nil {
+		t.Fatal(err)
+	}
+	got = loadCfg(t, path)
+	if got.Branch != "dev" || got.TokenEnv != "GH_PAT" || got.Token != "" {
+		t.Fatalf("overwritten = %+v", got)
+	}
+}
+
+// loadCfg loads the cfg and fails the test on any error or nil result.
+func loadCfg(t *testing.T, path string) *File {
+	t.Helper()
 	got, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Branch != "main" || got.Token != "abc" {
-		t.Fatalf("loaded = %+v", got)
+	if got == nil {
+		t.Fatalf("load %s: cfg is nil", path)
 	}
-	// No temp files may remain after an atomic write.
+	return got
+}
+
+// checkCfgMode asserts the cfg file has mode 0600.
+func checkCfgMode(t *testing.T, path string) {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("cfg mode = %o, want 0600", fi.Mode().Perm())
+	}
+}
+
+// checkNoLeftoverTemps asserts an atomic write left no temp files behind.
+func checkNoLeftoverTemps(t *testing.T, dir string) {
+	t.Helper()
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if strings.Contains(e.Name(), "tmp") {
 			t.Errorf("leftover temp file %s", e.Name())
 		}
-	}
-	// Overwrite works.
-	if err := Save(path, &File{Branch: "dev", TokenEnv: "GH_PAT"}); err != nil {
-		t.Fatal(err)
-	}
-	got, err = Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Branch != "dev" || got.TokenEnv != "GH_PAT" || got.Token != "" {
-		t.Fatalf("overwritten = %+v", got)
 	}
 }
 
