@@ -622,6 +622,19 @@ func isAutoSkipReason(reason string) bool {
 		reason == "registry name collision" || reason == "local conflict"
 }
 
+// countAutoSkips counts the skipped entries that raise exit code 2.
+// note: the strings isAutoSkipReason matches are shared with the report text,
+// so a reason renamed in one place only would silently change exit codes.
+func countAutoSkips(skipped []report.Entry) int {
+	n := 0
+	for _, e := range skipped {
+		if isAutoSkipReason(e.Reason) {
+			n++
+		}
+	}
+	return n
+}
+
 // ensureInstallDir creates the installation directory (post-confirmation).
 func (a *App) ensureInstallDir() error {
 	if a.installDir == "" {
