@@ -36,11 +36,11 @@ func (windowsPlatform) FontSources(source string) (FontSources, error) {
 func fontDirFor(source string) (string, registry.Key, error) {
 	switch source {
 	case "system":
-		windir := os.Getenv("WINDIR")
-		if windir == "" {
+		WindowsDir := os.Getenv("WINDIR")
+		if WindowsDir == "" {
 			return "", 0, fmt.Errorf("WINDIR is not set")
 		}
-		return filepath.Join(windir, "Fonts"), registry.LOCAL_MACHINE, nil
+		return filepath.Join(WindowsDir, "Fonts"), registry.LOCAL_MACHINE, nil
 	case "user":
 		local := os.Getenv("LOCALAPPDATA")
 		if local == "" {
