@@ -1,4 +1,30 @@
-# Project memory — session of 2026-10-30
+# Project memory — session of 2026-10-31
+
+## Project
+
+Same `fontvault` project as before (see session log of 2026-10-30 below, kept for reference).
+
+## Work done this session (2026-10-31)
+
+Goal: reduce the flagged "high complexity" of `TestFirstPushToEmptyRepo` in `internal/app/integration_test.go`
+while preserving behavior.
+
+- Rewrote the test body as a flat checklist and extracted six single-purpose `check*` helpers immediately below it (repo
+  convention: `check*`/`require*` names, `t.Helper()`, same package, unexported):
+    - `checkInitThenFontsCommits` — two-commit history, `t.Fatalf` on wrong commit count (preserved from original)
+    - `checkLFSAttributes` — per-extension loop replaces the `||`-joined contains check (reports which pattern is
+      missing)
+    - `checkFontBlobsArePointers` — guard-clause `continue` instead of nested `if suffix { ... }`
+    - `checkManifestFileCount`, `checkWorktreeHasNoFonts`, `checkPushReportWritten` (report check now a
+      `for want := range []string{...}` loop like `TestCompareOutputForFixtureSet`'s)
+- Replaced the `func() testfont.Spec { ... }()` IIFE for the OTTO Bravo fixture with three plain statements
+  (`bravo := fontSpecB(); bravo.OTTO = true; ...`).
+- All other tests untouched; helper names are generic in case `TestSparseWorktreeNoFontsAfterPush` etc. want to reuse
+  them later (deliberately not rewired this session to keep the diff focused).
+- Verified: `gofmt -l -e` clean, `go vet` clean, `go test ./...` all pass, LF endings preserved. The edit tool handled
+  the multi-line Go payload fine this session (no Python patch scripts needed).
+
+## Session log — 2026-10-30
 
 ## Project
 
