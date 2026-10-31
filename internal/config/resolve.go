@@ -14,7 +14,7 @@ const (
 	DefaultTokenEnv = "GITHUB_TOKEN"
 )
 
-// ResolveBranch: CLI switch, then cfg, then default.
+// ResolveBranch CLI switch, then cfg, then default.
 func ResolveBranch(cliBranch, cfgBranch string) string {
 	if cliBranch != "" {
 		return cliBranch
@@ -25,7 +25,7 @@ func ResolveBranch(cliBranch, cfgBranch string) string {
 	return DefaultBranch
 }
 
-// ResolveTokenEnv: CLI switch, then cfg, then default.
+// ResolveTokenEnv CLI switch, then cfg, then default.
 func ResolveTokenEnv(cliTokenEnv, cfgTokenEnv string) string {
 	if cliTokenEnv != "" {
 		return cliTokenEnv
@@ -36,7 +36,7 @@ func ResolveTokenEnv(cliTokenEnv, cfgTokenEnv string) string {
 	return DefaultTokenEnv
 }
 
-// ResolveExcludeFile: CLI switch, then cfg, then none.
+// ResolveExcludeFile CLI switch, then cfg, then none.
 func ResolveExcludeFile(cliExclude, cfgExclude string) string {
 	if cliExclude != "" {
 		return cliExclude
@@ -44,7 +44,7 @@ func ResolveExcludeFile(cliExclude, cfgExclude string) string {
 	return cfgExclude
 }
 
-// ResolveWorkdir: CLI switch, then cfg, then the login-based default under
+// ResolveWorkdir CLI switch, then cfg, then the login-based default under
 // the user cache directory.
 func ResolveWorkdir(cliWorkdir, cfgWorkdir, login string) (string, error) {
 	if cliWorkdir != "" {
