@@ -6,3 +6,6 @@ fontvault_sync_*.txt
 .deepcode/
 /.remember/
 /fontvault.exe
+
+# agent scratchpad
+prompt.md
