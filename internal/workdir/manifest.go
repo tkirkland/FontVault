@@ -69,43 +69,64 @@ func NewIndex() *Index {
 // LoadIndex walks workdir/manifest and loads every manifest. A corrupt
 // manifest is a per-file error and does not abort the load.
 func LoadIndex(workdir string) (*Index, []error) {
-	idx := NewIndex()
-	var errs []error
 	root := filepath.Join(workdir, "manifest")
+	load := &indexLoad{idx: NewIndex()}
 	if _, err := os.ReadDir(root); err != nil {
 		if os.IsNotExist(err) {
-			return idx, nil
+			return load.idx, nil
 		}
-		errs = append(errs, fmt.Errorf("read manifest dir %s: %w", root, err))
-		return idx, errs
+		load.dirUnreadable(root, err)
+		return load.idx, load.errs
 	}
-	var walk func(dir string)
-	walk = func(dir string) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("read manifest dir %s: %w", dir, err))
-			return
-		}
-		for _, e := range entries {
-			p := filepath.Join(dir, e.Name())
-			if e.IsDir() {
-				walk(p)
-				continue
-			}
-			if !strings.EqualFold(filepath.Ext(e.Name()), ".json") {
-				continue
-			}
-			m, err := Load(p)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			idx.ByKey[m.Key] = m
-			idx.ByPath[m.RepoPath] = m
-		}
+	load.walk(root)
+	return load.idx, load.errs
+}
+
+// indexLoad accumulates one LoadIndex run: the index being built plus the
+// errors (unreadable directory, corrupt manifest) that were recorded
+// instead of aborting the walk.
+type indexLoad struct {
+	idx  *Index
+	errs []error
+}
+
+// walk reads one manifest directory: subdirectories recurse, everything
+// else goes through addManifest. An unreadable directory is recorded and
+// skipped, its subtree included.
+func (l *indexLoad) walk(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		l.dirUnreadable(dir, err)
+		return
 	}
-	walk(root)
-	return idx, errs
+	for _, e := range entries {
+		if e.IsDir() {
+			l.walk(filepath.Join(dir, e.Name()))
+			continue
+		}
+		l.addManifest(dir, e.Name())
+	}
+}
+
+// addManifest loads and indexes one manifest file. A non-JSON name is
+// ignored; a manifest that fails to load is recorded and skipped.
+func (l *indexLoad) addManifest(dir, name string) {
+	if !strings.EqualFold(filepath.Ext(name), ".json") {
+		return
+	}
+	path := filepath.Join(dir, name)
+	m, err := Load(path)
+	if err != nil {
+		l.errs = append(l.errs, err)
+		return
+	}
+	l.idx.ByKey[m.Key] = m
+	l.idx.ByPath[m.RepoPath] = m
+}
+
+// dirUnreadable records the failure to list a manifest directory.
+func (l *indexLoad) dirUnreadable(dir string, err error) {
+	l.errs = append(l.errs, fmt.Errorf("read manifest dir %s: %w", dir, err))
 }
 
 // NewFromFont builds a manifest for a local font at time now (UTC).
