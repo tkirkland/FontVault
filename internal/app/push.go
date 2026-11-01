@@ -59,60 +59,11 @@ func (a *App) runPushPhase(ctx context.Context, st *runState, sync bool) (int, *
 		rep.Header.Mode = "sync"
 	}
 	rep.Header.BaseSHA = st.workdir.BaseSHA
+	res := newPushResult()
 
-	res := &pushResult{
-		useRepo:      map[string]*workdir.Manifest{},
-		answers:      map[string]pushChoice{},
-		reasons:      map[string]string{},
-		addedKeys:    map[string]bool{},
-		replacedKeys: map[string]bool{},
-		skippedKeys:  map[string]bool{},
-	}
-
-	// .gitattributes first: fix it in its own commit before any font commit.
-	if err := a.ensureGitAttributes(ctx, st); err != nil {
+	if err := a.commitAndPushFonts(ctx, st, sync, res); err != nil {
 		a.cleanupAbortedPush(ctx, st)
 		return a.fail("%v", err), nil, nil
-	}
-
-	errs := append([]report.Entry{}, st.manifestErrs...)
-	errs = append(errs, scanErrorEntries(st.scanRes)...)
-	errs = append(errs, st.sysScanErrs...)
-	var excluded []report.Entry
-	for _, d := range st.decisions {
-		if d.Excluded {
-			excluded = append(excluded, fontEntry(d.Font, d.Reason))
-		}
-	}
-	excluded = append(excluded, st.notChosen...)
-
-	apply := func() error { return a.applyPushFonts(ctx, st, sync, res) }
-	if err := apply(); err != nil {
-		a.cleanupAbortedPush(ctx, st)
-		return a.fail("%v", err), nil, nil
-	}
-	if err := a.verifyStagedFonts(ctx, st, res); err != nil {
-		a.cleanupAbortedPush(ctx, st)
-		return a.fail("%v", err), nil, nil
-	}
-	if err := a.commitIfStaged(ctx, st, res); err != nil {
-		a.cleanupAbortedPush(ctx, st)
-		return a.fail("%v", err), nil, nil
-	}
-	pushed, err := a.pushWithRetries(ctx, st, res, apply)
-	if err != nil {
-		a.cleanupAbortedPush(ctx, st)
-		return a.fail("%v", err), nil, nil
-	}
-	if pushed {
-		sha, err := a.git.RevParse(ctx, st.workdir.Dir)
-		if err != nil {
-			a.cleanupAbortedPush(ctx, st)
-			return a.fail("resolve new commit: %v", err), nil, nil
-		}
-		if sha != st.workdir.BaseSHA {
-			res.newSHA = sha
-		}
 	}
 	rep.Header.NewSHA = res.newSHA
 
@@ -122,27 +73,90 @@ func (a *App) runPushPhase(ctx context.Context, st *runState, sync bool) (int, *
 	}
 	a.pushPhaseOK = true
 
-	errs = append(errs, res.errors_...)
+	errs := append(pushErrorEntries(st), res.errors_...)
 	// Local-duplicate keys skipped while resolving duplicates belong in this
 	// report exactly as compare lists them; their reasons also feed the
 	// exit-2 auto-skip tally. The two lists are disjoint by construction:
 	// skipped keys are absent from st.reps, so push never prompts them and
 	// res.skipped can never hold them.
 	skippedAll := append(append([]report.Entry{}, res.skipped...), st.localConflictSkips...)
-	skippedAuto := 0
-	for _, e := range skippedAll {
-		if isAutoSkipReason(e.Reason) {
-			skippedAuto++
-		}
-	}
 	rep.AddSection(report.SectionAdded, fontEntries(res.added))
 	rep.AddSection(report.SectionReplacedRepo, fontEntries(res.replaced))
 	rep.AddSection(report.SectionConflictsSkipped, skippedAll)
-	rep.AddSection(report.SectionExcluded, excluded)
+	rep.AddSection(report.SectionExcluded, pushExcludedEntries(st))
 	rep.AddSection(report.SectionErrors, errs)
 	rep.AddCountSection(report.SectionSkippedFormats, st.scanRes.Skipped)
 
-	return finalCode(len(errs), skippedAuto), rep, res
+	return finalCode(len(errs), countAutoSkips(skippedAll)), rep, res
+}
+
+// newPushResult starts the cumulative per-key bookkeeping for one push
+// phase; outcome entries survive rebase retries.
+func newPushResult() *pushResult {
+	return &pushResult{
+		useRepo:      map[string]*workdir.Manifest{},
+		answers:      map[string]pushChoice{},
+		reasons:      map[string]string{},
+		addedKeys:    map[string]bool{},
+		replacedKeys: map[string]bool{},
+		skippedKeys:  map[string]bool{},
+	}
+}
+
+// pushErrorEntries collects the errors found before the push phase ran.
+func pushErrorEntries(st *runState) []report.Entry {
+	errs := append([]report.Entry{}, st.manifestErrs...)
+	errs = append(errs, scanErrorEntries(st.scanRes)...)
+	errs = append(errs, st.sysScanErrs...)
+	return errs
+}
+
+// pushExcludedEntries lists the fonts kept out of the push: policy-excluded
+// decisions plus duplicates that were not chosen.
+func pushExcludedEntries(st *runState) []report.Entry {
+	var excluded []report.Entry
+	for _, d := range st.decisions {
+		if d.Excluded {
+			excluded = append(excluded, fontEntry(d.Font, d.Reason))
+		}
+	}
+	return append(excluded, st.notChosen...)
+}
+
+// commitAndPushFonts runs the git half of the push phase: the attributes
+// commit, one apply/verify/commit pass, the push (with rebase retries) and
+// the new-SHA resolution. The wrapped "resolve new commit" wording is
+// preserved from the original call site.
+func (a *App) commitAndPushFonts(ctx context.Context, st *runState, sync bool, res *pushResult) error {
+	// .gitattributes first: fix it in its own commit before any font commit.
+	if err := a.ensureGitAttributes(ctx, st); err != nil {
+		return err
+	}
+	apply := func() error { return a.applyPushFonts(ctx, st, sync, res) }
+	if err := apply(); err != nil {
+		return err
+	}
+	if err := a.verifyStagedFonts(ctx, st, res); err != nil {
+		return err
+	}
+	if err := a.commitIfStaged(ctx, st, res); err != nil {
+		return err
+	}
+	pushed, err := a.pushWithRetries(ctx, st, res, apply)
+	if err != nil {
+		return err
+	}
+	if !pushed {
+		return nil
+	}
+	sha, err := a.git.RevParse(ctx, st.workdir.Dir)
+	if err != nil {
+		return fmt.Errorf("resolve new commit: %w", err)
+	}
+	if sha != st.workdir.BaseSHA {
+		res.newSHA = sha
+	}
+	return nil
 }
 
 func fontEntries(list []*fonts.Font) []report.Entry {
@@ -279,45 +293,7 @@ func (a *App) pushAdd(ctx context.Context, st *runState, f *fonts.Font, res *pus
 func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *fonts.Font, repo *workdir.Manifest, res *pushResult) error {
 	choice, answered := res.answers[f.Key]
 	if !answered {
-		switch {
-		case a.Opts.Yes:
-			choice = pushChoiceSkip
-			res.reasons[f.Key] = "-y"
-			appendSkipped(res, f.Key, conflictEntry(f, repo, "-y"))
-		default:
-			_, _ = fmt.Fprintf(a.Stdout,
-				"Conflict: %s %s (key %s)\n  local: version %s | revision %s | %d bytes | sha %s | %s\n  repo:  version %s | revision %s | %d bytes | sha %s | %s\n",
-				f.Family, f.Subfamily, f.Key,
-				orDash(f.VersionString), orDash(f.FontRevision), f.Size, fonts.ShortHash(f.SHA256), f.Path,
-				orDash(repo.VersionString), orDash(repo.FontRevision), repo.Size, fonts.ShortHash(repo.SHA256), repo.RepoPath)
-			valid := map[string]string{"r": "r", "s": "s"}
-			if sync {
-				valid = map[string]string{"l": "l", "r": "r", "s": "s"}
-			}
-			answer, err := a.prompter.choice(a.conflictPrompt(sync), valid)
-			if err != nil {
-				a.Log.Warn("read conflict answer", "error", err)
-				answer = "s"
-			}
-			switch answer {
-			case "s":
-				choice = pushChoiceSkip
-				res.reasons[f.Key] = "user skip"
-				appendSkipped(res, f.Key, conflictEntry(f, repo, "user skip"))
-			case "r":
-				if sync {
-					// "use [r]epo": the repo copy replaces the local copy
-					// during the pull phase.
-					choice = pushChoiceUseRepo
-				} else {
-					choice = pushChoiceReplace
-				}
-			case "l":
-				// "use [l]ocal": replace the repo copy.
-				choice = pushChoiceReplace
-			}
-		}
-		res.answers[f.Key] = choice
+		choice = a.resolvePushChoice(sync, f, repo, res)
 		if choice == pushChoiceSkip {
 			return nil
 		}
@@ -325,11 +301,7 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 
 	switch choice {
 	case pushChoiceSkip:
-		reason := res.reasons[f.Key]
-		if reason == "" {
-			reason = "user skip"
-		}
-		appendSkipped(res, f.Key, conflictEntry(f, repo, reason))
+		appendSkipped(res, f.Key, conflictEntry(f, repo, pushSkipReason(res, f.Key)))
 		return nil
 	case pushChoiceUseRepo:
 		// Sync only: the repo copy replaces the local copy in the pull
@@ -340,6 +312,60 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 		// Continue below.
 	}
 
+	return a.replaceRepoFont(ctx, st, f, repo, res)
+}
+
+// resolvePushChoice asks (or auto-skips under -y) about an unanswered
+// conflict and records the answer in res.answers, so rebase retries keep
+// it. Skip answers record their skipped entry here; later passes take
+// pushConflict's answered path. A failed prompt read is treated as "s"
+// (skip), matching modes.go's note on the pull conflict code.
+func (a *App) resolvePushChoice(sync bool, f *fonts.Font, repo *workdir.Manifest, res *pushResult) pushChoice {
+	if a.Opts.Yes {
+		res.reasons[f.Key] = "-y"
+		appendSkipped(res, f.Key, conflictEntry(f, repo, "-y"))
+		res.answers[f.Key] = pushChoiceSkip
+		return pushChoiceSkip
+	}
+	_, _ = fmt.Fprintf(a.Stdout,
+		"Conflict: %s %s (key %s)\n  local: version %s | revision %s | %d bytes | sha %s | %s\n  repo:  version %s | revision %s | %d bytes | sha %s | %s\n",
+		f.Family, f.Subfamily, f.Key,
+		orDash(f.VersionString), orDash(f.FontRevision), f.Size, fonts.ShortHash(f.SHA256), f.Path,
+		orDash(repo.VersionString), orDash(repo.FontRevision), repo.Size, fonts.ShortHash(repo.SHA256), repo.RepoPath)
+	valid := map[string]string{"r": "r", "s": "s"}
+	if sync {
+		valid = map[string]string{"l": "l", "r": "r", "s": "s"}
+	}
+	answer, err := a.prompter.choice(a.conflictPrompt(sync), valid)
+	if err != nil {
+		a.Log.Warn("read conflict answer", "error", err)
+		answer = "s"
+	}
+	choice := pushChoiceSkip
+	switch answer {
+	case "s":
+		res.reasons[f.Key] = "user skip"
+		appendSkipped(res, f.Key, conflictEntry(f, repo, "user skip"))
+	case "r":
+		if sync {
+			// "use [r]epo": the repo copy replaces the local copy
+			// during the pull phase.
+			choice = pushChoiceUseRepo
+		} else {
+			choice = pushChoiceReplace
+		}
+	case "l":
+		// "use [l]ocal": replace the repo copy.
+		choice = pushChoiceReplace
+	}
+	res.answers[f.Key] = choice
+	return choice
+}
+
+// replaceRepoFont overwrites the repo copy with the local font: dry-run
+// notice, then write the new file, update the manifest, stage and index
+// the result.
+func (a *App) replaceRepoFont(ctx context.Context, st *runState, f *fonts.Font, repo *workdir.Manifest, res *pushResult) error {
 	if a.Opts.DryRun {
 		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, repo.RepoPath)
 		if !res.replacedKeys[f.Key] {
@@ -385,6 +411,16 @@ func appendSkipped(res *pushResult, key string, entry report.Entry) {
 	}
 	res.skippedKeys[key] = true
 	res.skipped = append(res.skipped, entry)
+}
+
+// pushSkipReason reports the recorded reason for a skipped conflict; an
+// unset reason defaults to "user skip", as the answered path did.
+func pushSkipReason(res *pushResult, key string) string {
+	reason := res.reasons[key]
+	if reason == "" {
+		reason = "user skip"
+	}
+	return reason
 }
 
 func (a *App) conflictPrompt(sync bool) string {
@@ -572,62 +608,102 @@ func (a *App) pushWithRetries(ctx context.Context, st *runState, res *pushResult
 	}
 	backoff := time.Second
 	for attempt := 1; attempt <= maxPushAttempts; attempt++ {
-		if _, err := a.git.LFSPush(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
-			return false, fmt.Errorf("push LFS objects for %s: %w", st.workdir.Branch, err)
+		pushed, err := a.pushAttempt(ctx, st, res, apply, attempt, &backoff)
+		if err != nil {
+			return false, err
 		}
-		if _, err := a.git.Push(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
-			if !isNonFastForward(err) {
-				return false, fmt.Errorf("push %s to origin: %w", st.workdir.Branch, err)
-			}
-			if attempt == maxPushAttempts {
-				return false, fmt.Errorf("push %s rejected %d times (non-fast-forward); local commits are retained: %w", st.workdir.Branch, maxPushAttempts, err)
-			}
-			a.Log.Warn("push rejected (non-fast-forward); fetching and rebasing", "attempt", attempt)
-			select {
-			case <-ctx.Done():
-				return false, fmt.Errorf("interrupted: %w", ctx.Err())
-			case <-time.After(backoff + time.Duration(rand.Int64N(int64(backoff/2+1)))):
-			}
-			backoff *= 2
-			if _, err := a.git.Fetch(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
-				return false, fmt.Errorf("fetch %s for rebase: %w", st.workdir.Branch, err)
-			}
-			if _, err := a.git.Rebase(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
-				return false, fmt.Errorf("rebase onto origin/%s failed; local commits are retained: %w", st.workdir.Branch, err)
-			}
-			// Reload manifests and redo the apply loop against the new
-			// state; previously answered conflicts keep their answers.
-			idx, errs := workdir.LoadIndex(a.workdir)
-			for _, e := range errs {
-				res.errors_ = append(res.errors_, report.Entry{Path: "manifest", Reason: e.Error()})
-			}
-			st.idx = idx
-			if err := apply(); err != nil {
-				return false, err
-			}
-			if err := a.verifyStagedFonts(ctx, st, res); err != nil {
-				return false, err
-			}
-			if err := a.commitIfStaged(ctx, st, res); err != nil {
-				return false, err
-			}
-			continue
+		if pushed {
+			return true, nil
 		}
+	}
+	return false, errors.New("push exhausted retries")
+}
+
+// pushAttempt does one push attempt: LFS objects, then the ref. On success
+// it verifies the pushed head and returns true; on a recoverable non-fast-forward
+// rejection it rebases and restages and returns false so the caller retries.
+// Any other error aborts the run.
+func (a *App) pushAttempt(ctx context.Context, st *runState, res *pushResult, apply func() error, attempt int, backoff *time.Duration) (bool, error) {
+	if _, err := a.git.LFSPush(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
+		return false, fmt.Errorf("push LFS objects for %s: %w", st.workdir.Branch, err)
+	}
+	_, pushErr := a.git.Push(ctx, st.workdir.Dir, st.workdir.Branch)
+	if pushErr == nil {
 		// Verify the ref now points at our commit.
-		local, err := a.git.RevParse(ctx, st.workdir.Dir)
-		if err != nil {
-			return false, fmt.Errorf("resolve HEAD after push: %w", err)
-		}
-		remote, err := a.git.LsRemote(ctx, st.workdir.Dir, st.workdir.Branch)
-		if err != nil {
-			return false, fmt.Errorf("verify pushed ref: %w", err)
-		}
-		if remote != local {
-			return false, fmt.Errorf("push verification failed: origin/%s is %s, expected %s", st.workdir.Branch, remote, local)
+		if err := a.verifyPushedRef(ctx, st); err != nil {
+			return false, err
 		}
 		return true, nil
 	}
-	return false, errors.New("push exhausted retries")
+	if !isNonFastForward(pushErr) {
+		return false, fmt.Errorf("push %s to origin: %w", st.workdir.Branch, pushErr)
+	}
+	if attempt == maxPushAttempts {
+		return false, fmt.Errorf("push %s rejected %d times (non-fast-forward); local commits are retained: %w", st.workdir.Branch, maxPushAttempts, pushErr)
+	}
+	a.Log.Warn("push rejected (non-fast-forward); fetching and rebasing", "attempt", attempt)
+	if err := a.recoverPushRejection(ctx, st, backoff); err != nil {
+		return false, err
+	}
+	if err := a.reapplyAfterRebase(ctx, st, res, apply); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// recoverPushRejection backs off (deterministic exponential + jitter, doubling
+// each attempt), then fetches and rebases onto origin.
+func (a *App) recoverPushRejection(ctx context.Context, st *runState, backoff *time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("interrupted: %w", ctx.Err())
+	case <-time.After(*backoff + time.Duration(rand.Int64N(int64(*backoff/2+1)))):
+	}
+	*backoff *= 2
+	if _, err := a.git.Fetch(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
+		return fmt.Errorf("fetch %s for rebase: %w", st.workdir.Branch, err)
+	}
+	if _, err := a.git.Rebase(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
+		return fmt.Errorf("rebase onto origin/%s failed; local commits are retained: %w", st.workdir.Branch, err)
+	}
+	return nil
+}
+
+// reapplyAfterRebase reloads the manifest index and redoes apply/verify/commit
+// against the rebased state; previously answered conflicts keep their answers.
+func (a *App) reapplyAfterRebase(ctx context.Context, st *runState, res *pushResult, apply func() error) error {
+	idx, errs := workdir.LoadIndex(a.workdir)
+	for _, e := range errs {
+		res.errors_ = append(res.errors_, report.Entry{Path: "manifest", Reason: e.Error()})
+	}
+	st.idx = idx
+	if err := apply(); err != nil {
+		return err
+	}
+	if err := a.verifyStagedFonts(ctx, st, res); err != nil {
+		return err
+	}
+	if err := a.commitIfStaged(ctx, st, res); err != nil {
+		return err
+	}
+	return nil
+}
+
+// verifyPushedRef confirms origin's branch head matches local HEAD after
+// a successful push.
+func (a *App) verifyPushedRef(ctx context.Context, st *runState) error {
+	local, err := a.git.RevParse(ctx, st.workdir.Dir)
+	if err != nil {
+		return fmt.Errorf("resolve HEAD after push: %w", err)
+	}
+	remote, err := a.git.LsRemote(ctx, st.workdir.Dir, st.workdir.Branch)
+	if err != nil {
+		return fmt.Errorf("verify pushed ref: %w", err)
+	}
+	if remote != local {
+		return fmt.Errorf("push verification failed: origin/%s is %s, expected %s", st.workdir.Branch, remote, local)
+	}
+	return nil
 }
 
 func isNonFastForward(err error) bool {
