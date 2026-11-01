@@ -251,15 +251,15 @@ or 6) print to the console only. `-n` writes no report.
 
 ## Exit codes
 
-| Code | Meaning                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------- |
-| 0    | success                                                                                     |
-| 1    | fatal error                                                                                 |
-| 2    | completed with per-file errors or automatically skipped conflicts                           |
-| 3    | preflight failure                                                                           |
-| 4    | lock held by another live instance                                                         |
-| 5    | usage error (including non-TTY stdin without `-y`)                                         |
-| 6    | cancelled by the user (declined the settings confirmation or repo creation)                 |
+| Code | Meaning                                                                     |
+|------|-----------------------------------------------------------------------------|
+| 0    | success                                                                     |
+| 1    | fatal error                                                                 |
+| 2    | completed with per-file errors or automatically skipped conflicts           |
+| 3    | preflight failure                                                           |
+| 4    | lock held by another live instance                                          |
+| 5    | usage error (including non-TTY stdin without `-y`)                          |
+| 6    | cancelled by the user (declined the settings confirmation or repo creation) |
 
 ## Development
 
