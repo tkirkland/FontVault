@@ -42,6 +42,33 @@ Same `fontvault` project as before (see session logs of 2026-10-31 and 2026-10-3
   ./internal/osinfo` clean, host `go build ./...` clean, IDE 0 diagnostics; behavior identical by construction,
   no runtime test possible here (same caveat as `pkg_linux.go`). Also kept the user's on-disk `werr`→`wErr`
   rename in `lockfile.go` (not reverted).
+- `osinfo_windows.go`: cleared its one "Unhandled error" — bare `defer k.Close()` in `String()` (registry `Key.Close`
+  is error-typed here) → `defer closeKeyQuietly(k)` + helper below (sibling of the linux `closeQuietly`); values are
+  all read before the close, semantics unchanged. **Editor race:** GoLand's unsaved buffer flushed over this fix
+  twice (reverted it while re-adding the user's own header edits); re-applied a third time and IDE then answered
+  0 diagnostics. If the user keeps the file open unsaved in GoLand, disk edits keep losing — tell them to
+  save/reload in the IDE before agent edits.
+- **Reported, not reverted** (user's on-disk edits per session instructions): `osinfo_linux.go` now reads
+  `//go:build Linux` — build-constraint identifiers are lowercase, so on Linux the file is excluded and
+  `GOOS=linux go build ./internal/osinfo` fails "build constraints exclude all Go files" (verified, exit 1). Also
+  both files now have `package osinfo` **before** their `// Package …` doc comment (doc comment detached from the
+  package), and the windows one has the text doubled ("Package OS info Package OS info reports…"). gofmt accepts
+  the layout; only the capital `Linux` is a hard build break.
+- Verified: gofmt clean on both osinfo files, host `go build ./internal/osinfo` + `go vet` exit 0, IDE 0 diagnostics
+  on windows file.
+- `internal/report/report.go` (same session): cleared all 23 diagnostics in one pass — "high complexity 53" on
+  `Render` plus 22 "Unhandled error" on its bare `fmt.Fprintf(&b, …)` calls. `Render` is now a 5-line body
+  (`renderHeader` → `sectionsByName` → `renderSummary` → `renderSections`), helpers immediately below:
+  `renderHeader` (method, uses `r.Header`), `renderSummary`, `sectionsByName` (same last-write-wins map),
+  `renderSections` (loop dispatches to `renderCountsBody` / `(none)` / per-entry `renderEntry`),
+  `renderEntry` (errors-shape, conflict block, plain line — original's `continue`s became `return`s),
+  `renderConflictEntry`. Every `Fprintf` got the `_, _ =` discard during the rewrite; the `b.WriteString` calls
+  are NOT flagged (this toolchain's `Builder.WriteString` returns nothing) so they stay bare — don't "fix" those.
+  Helpers take `b *strings.Builder` and must call `fmt.Fprintf(b, …)` — passing `&b` yields `**strings.Builder`
+  compile errors (hit this once, fixed with replace_all; the replace ate the space after the comma, one `gofmt -w`
+  cleaned it). Byte-identity guarded by `report_test.go` (exact rendered text) plus app integration tests.
+  Verified: IDE 0 diagnostics (asked before tests), `gofmt -l -e` clean, `go vet` clean, `go test -count=1 ./...`
+  fully green (app 92.9s); LF preserved.
 
 ## Project memory — session of 2026-10-31
 
