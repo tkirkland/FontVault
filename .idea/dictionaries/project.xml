@@ -3,15 +3,22 @@
     <words>
       <w>Atoi</w>
       <w>WINDIR</w>
+      <w>cmap</w>
       <w>esum</w>
       <w>fontvault</w>
       <w>fontvault's</w>
       <w>fsutil</w>
       <w>fsyncs</w>
+      <w>glyf</w>
+      <w>hhea</w>
+      <w>hmtx</w>
       <w>housekeep</w>
       <w>hwnd</w>
       <w>keyhash</w>
+      <w>loca</w>
+      <w>lowestRecPPEM</w>
       <w>macroman</w>
+      <w>maxp</w>
       <w>octocat</w>
       <w>pathspec</w>
       <w>psname</w>
