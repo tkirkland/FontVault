@@ -12,6 +12,7 @@ func processAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	windows.CloseHandle(h)
+	// best effort: the handle was only needed to probe existence.
+	_ = windows.CloseHandle(h)
 	return true
 }
