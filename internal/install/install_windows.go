@@ -4,6 +4,7 @@ package install
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -28,7 +29,7 @@ var (
 )
 
 // winOps keeps Windows registry and GDI calls behind an interface so the
-// install logic can be unit-tested on Windows without touching the real
+// installation logic can be unit-tested on Windows without touching the real
 // system state.
 type winOps interface {
 	ValueExists(name string) (bool, error)
@@ -52,11 +53,14 @@ func newRealWinOps(system bool) (*realWinOps, error) {
 	} else {
 		hive = registry.CURRENT_USER
 	}
-	if _, err := registry.OpenKey(hive, fontsRegPath, registry.QUERY_VALUE); err != nil {
+	k, err := registry.OpenKey(hive, fontsRegPath, registry.QUERY_VALUE)
+	if err != nil {
 		// The key always exists on real Windows; recreate logic stays out
 		// of scope because fontvault never deletes it.
 		return nil, fmt.Errorf("open registry key %s: %w", fontsRegPath, err)
 	}
+	// Probe only: realWinOps reopens the key per op, so close this handle now.
+	_ = k.Close()
 	return &realWinOps{hive: hive, system: system}, nil
 }
 
@@ -69,9 +73,9 @@ func (r *realWinOps) ValueExists(name string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }() // registry handle; close error is not actionable
 	_, _, err = k.GetStringValue(name)
-	if err == registry.ErrNotExist {
+	if errors.Is(err, registry.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
@@ -85,7 +89,7 @@ func (r *realWinOps) WriteValue(name, data string) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }() // registry handle; close error is not actionable
 	return k.SetStringValue(name, data)
 }
 
@@ -94,8 +98,8 @@ func (r *realWinOps) RemoveValueByName(name string) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
-	if err := k.DeleteValue(name); err != nil && err != registry.ErrNotExist {
+	defer func() { _ = k.Close() }() // registry handle; close error is not actionable
+	if err := k.DeleteValue(name); err != nil && !errors.Is(err, registry.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -106,7 +110,7 @@ func (r *realWinOps) RemoveValueByData(data string) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }() // registry handle; close error is not actionable
 	names, err := k.ReadValueNames(0)
 	if err != nil {
 		return err
@@ -117,7 +121,7 @@ func (r *realWinOps) RemoveValueByData(data string) error {
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(v), strings.TrimSpace(data)) {
-			if err := k.DeleteValue(n); err != nil && err != registry.ErrNotExist {
+			if err := k.DeleteValue(n); err != nil && !errors.Is(err, registry.ErrNotExist) {
 				return err
 			}
 		}
@@ -131,7 +135,9 @@ func callFontResource(proc *windows.LazyProc, path string) error {
 		return err
 	}
 	ret, _, callErr := proc.Call(uintptr(unsafe.Pointer(p)), 0, 0)
-	if callErr != nil && callErr != windows.ERROR_SUCCESS {
+	// This SDK's Call yields nil on success; a non-nil callErr is never equal
+	// to the ERROR_SUCCESS sentinel, so the nil check alone decides.
+	if callErr != nil {
 		return callErr
 	}
 	if ret == 0 {
@@ -149,7 +155,9 @@ func (r *realWinOps) RemoveFontResource(path string) error {
 }
 
 func (r *realWinOps) BroadcastFontChange() {
-	procPostMessageW.Call(hwndBroadcast, wmFontChange, 0, 0)
+	// Best effort: the GDI broadcast result is advisory; failures are not
+	// actionable (the font data is already updated when this runs).
+	_, _, _ = procPostMessageW.Call(hwndBroadcast, wmFontChange, 0, 0)
 }
 
 type windowsInstaller struct {
@@ -227,12 +235,12 @@ func (w *windowsInstaller) Install(_ context.Context, tempPath string, meta Meta
 		return "", ErrRegistryNameCollision
 	}
 	if err := w.ops.WriteValue(name, w.registryValueData(target)); err != nil {
-		w.ops.RemoveValueByName(name)
+		_ = w.ops.RemoveValueByName(name) // best-effort rollback; write error is the reported cause
 		rollback()
 		return "", fmt.Errorf("write registry value %q: %w", name, err)
 	}
 	if err := w.ops.AddFontResource(target); err != nil {
-		w.ops.RemoveValueByName(name)
+		_ = w.ops.RemoveValueByName(name) // best-effort rollback; the AddFontResource error is the reported cause
 		rollback()
 		return "", fmt.Errorf("AddFontResourceExW %s: %w", target, err)
 	}
@@ -288,7 +296,7 @@ func checkSystemPrereqs() error {
 	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil {
 		return fmt.Errorf("open process token: %w", err)
 	}
-	defer token.Close()
+	defer func() { _ = token.Close() }() // process token handle; close error is not actionable
 	var elevation uint32
 	var returned uint32
 	if err := windows.GetTokenInformation(token, windows.TokenElevation,
