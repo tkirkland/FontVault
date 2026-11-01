@@ -1,4 +1,4 @@
-// Package install installs fonts pulled from the repository into the local
+// Package installation installs fonts pulled from the repository into the local
 // font directories. Platform differences (Windows registry + GDI vs Linux
 // fc-cache) live behind the Installer interface so the pull logic can be
 // tested on every platform.
@@ -27,7 +27,7 @@ var ErrRegistryNameCollision = errors.New("registry value name already exists")
 
 // Installer installs and unregisters fonts on one platform.
 type Installer interface {
-	// Install moves tempPath into the install dir under meta.Filename and
+	// Install moves tempPath into the installation dir under meta.Filename and
 	// registers the font. The caller has already verified that the target
 	// does not exist. On a registry name collision the moved file is
 	// removed and ErrRegistryNameCollision is returned.
