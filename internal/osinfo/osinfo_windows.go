@@ -1,7 +1,8 @@
 //go:build windows
 
-// Package osinfo reports the host OS name and version.
 package osinfo
+
+// Package OS info Package OS info reports the host OS name and version.
 
 import (
 	"golang.org/x/sys/windows/registry"
@@ -15,7 +16,7 @@ func String() string {
 	if err != nil {
 		return "Windows"
 	}
-	defer k.Close()
+	defer closeKeyQuietly(k)
 	name, _, _ := k.GetStringValue("ProductName")
 	if name == "" {
 		name = "Windows"
@@ -29,4 +30,10 @@ func String() string {
 		return name + " (build " + build + ")"
 	}
 	return name
+}
+
+// closeKeyQuietly closes a registry key handle: the values have already been
+// read, so a close failure changes nothing (the best effort).
+func closeKeyQuietly(k registry.Key) {
+	_ = k.Close()
 }
