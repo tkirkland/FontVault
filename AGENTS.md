@@ -29,6 +29,19 @@ Same `fontvault` project as before (see session logs of 2026-10-31 and 2026-10-3
   behavioral delta: these tests now fail instead of passing if `Release` misbehaves at cleanup. Verified: gofmt/vet
   clean, `go test -count=1 ./internal/lockfile` green, IDE answered **0 diagnostics** (asked before the test run),
   LF preserved. `internal/lockfile` now has zero IDE diagnostics across all four files.
+- DeepSource "high complexity" sweep continued: `internal/osinfo/osinfo_linux.go` `String()` (27 lines: nested
+  open-block + scan loop + nested uname block) is now a flat 3-step body — `prettyName()` → `unameString()` →
+  `"Linux"`, helpers immediately below (same split convention). `prettyName` keeps the "empty PRETTY_NAME means
+  keep scanning" semantics via a guard-clause `continue`; `unameString` returns `""` for "uname failed" and
+  "empty sysname" (which `String` turns into the `"Linux"` fallback — same outcomes as the original's nested ifs).
+  The bare `defer f.Close()` became `defer closeQuietly(f)` (this toolchain's `File.Close` returns `error`;
+  never-bare rule) — only real delta is fd-close ordering: it now closes when `prettyName` exits instead of at
+  `String`'s return, unobservable since the scan is complete before `Uname` runs. `String()`'s signature untouched,
+  so `platform_linux.go:19`/`platform_windows.go:21` are untouched. Note: the package has **no test file**, and the
+  file is `//go:build linux` on a win32 host — verified via `gofmt -l -e` clean, `GOOS=linux go vet`/`go build
+  ./internal/osinfo` clean, host `go build ./...` clean, IDE 0 diagnostics; behavior identical by construction,
+  no runtime test possible here (same caveat as `pkg_linux.go`). Also kept the user's on-disk `werr`→`wErr`
+  rename in `lockfile.go` (not reverted).
 
 ## Project memory — session of 2026-10-31
 
