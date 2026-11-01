@@ -129,6 +129,29 @@ while preserving behavior.
 - Verified after each step: gofmt clean (used `gofmt -w` once for a leftover blank line), `go vet ./...` clean, final
   `go test -count=1 ./...` fully green (app 88.5s).
 
+### `LoadIndex` complexity (internal/workdir/manifest.go), same session
+
+- `LoadIndex` (39 lines, recursive `var walk func(dir string); walk = func…` closure capturing `idx`/`errs`) is now an
+  8-line body: join root → probe `os.ReadDir(root)` → `load.walk(root)` → return `load.idx, load.errs`. Helpers sit
+  immediately below it (same convention as the `pull.go` split):
+    - `indexLoad` struct `{idx *Index, errs []error}` — the accumulator the closure used to capture; built as
+      `&indexLoad{idx: NewIndex()}`, `errs` stays nil until something fails (nil slices append fine, and the tests'
+      `len(errs) != 0` checks read nil as "no errors" exactly as before).
+    - `(l *indexLoad) walk(dir)` — read dir, recurse on subdirectories, everything else → `addManifest`.
+    - `(l *indexLoad) addManifest(dir, name)` — `.json` guard, `Load`, then both index maps.
+    - `(l *indexLoad) dirUnreadable(dir, err)` — one place builds `"read manifest dir %s: %w"`, so the root probe and
+      the walk share the message text (previously duplicated).
+- Behavior identical by construction: the separate root probe is what keeps "manifest/ absent → empty index, no errors"
+  distinct from "unreadable root → one error" (`TestLoadIndexMissingDirIsEmpty` covers the first half,
+  `TestLoadIndexCorruptManifestIsPerFileError` the per-file half); visit order is still `os.ReadDir` order with
+  recursion inline, so index insert order and error order are unchanged. `LoadIndex`'s signature is untouched, so
+  `modes.go:99` and `push.go:600` are untouched.
+- Note for future sessions: **nothing in this repo names `os.DirEntry`** — entries are only ever used via `e.Name()` /
+  `e.IsDir()`. Given this toolchain's non-upstream stdlib shape, keep helper parameters as plain `strings` (like
+  `addManifest(dir, name)`) rather than naming that type; grep `DirEntry` before introducing it.
+- Verified: `gofmt -l -e` clean, `go vet ./...` clean, `go test -count=1 ./internal/workdir` green, then full
+  `go test -count=1 ./...` fully green (app 94.1s); LF endings preserved (0 CR bytes in the file).
+
 ## Session log — 2026-10-30
 
 ## Project
