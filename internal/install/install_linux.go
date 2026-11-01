@@ -49,7 +49,7 @@ func (l *linuxInstaller) RegisterFont(_ context.Context, _ string, _ Meta) error
 	return nil
 }
 
-// Finish rebuilds the font cache for the install dir. fc-cache is optional:
+// Finish rebuilds the font cache for the installation dir. fc-cache is optional:
 // when it is missing, a warning is logged and the run continues.
 func (l *linuxInstaller) Finish(_ context.Context) error {
 	fc, err := exec.LookPath("fc-cache")
