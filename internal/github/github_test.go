@@ -20,7 +20,7 @@ func TestCurrentUser(t *testing.T) {
 		if !strings.Contains(r.Header.Get("User-Agent"), "fontvault") {
 			t.Errorf("user-agent = %q", r.Header.Get("User-Agent"))
 		}
-		w.Write([]byte(`{"login":"octocat"}`))
+		_, _ = w.Write([]byte(`{"login":"octocat"}`)) // response write; a failed write means the client hung up
 	}))
 	defer srv.Close()
 	c := &HTTP{Token: "tok", BaseURL: srv.URL, Client: srv.Client()}
@@ -59,7 +59,7 @@ func TestCreateRepo(t *testing.T) {
 			t.Errorf("request = %s %s", r.Method, r.URL.Path)
 		}
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"name":"fontvault"}`))
+		_, _ = w.Write([]byte(`{"name":"fontvault"}`)) // response write; a failed write means the client hung up
 	}))
 	defer srv.Close()
 	c := &HTTP{Token: "tok", BaseURL: srv.URL, Client: srv.Client()}
@@ -72,7 +72,7 @@ func TestCreateRepoPermissionError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Accepted-GitHub-Permissions", "contents=read")
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`)) // response write; a failed write means the client hung up
 	}))
 	defer srv.Close()
 	c := &HTTP{Token: "tok", BaseURL: srv.URL, Client: srv.Client()}
