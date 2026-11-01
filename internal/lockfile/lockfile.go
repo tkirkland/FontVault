@@ -55,8 +55,8 @@ func Acquire(dir string) (*Lock, error) {
 func tryAcquire(path string) (*Lock, error, bool) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err == nil {
-		lock, werr := writeLockFile(path, f)
-		return lock, werr, false
+		lock, wErr := writeLockFile(path, f)
+		return lock, wErr, false
 	}
 	if !os.IsExist(err) {
 		return nil, fmt.Errorf("create lock file %s: %w", path, err), false
