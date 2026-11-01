@@ -106,6 +106,29 @@ while preserving behavior.
 - Verified: `gofmt -l -e` clean, `go vet ./internal/cli` clean, `go test ./internal/cli` green, `go test ./...` green,
   IDE reports 0 diagnostics for both files; LF endings preserved.
 
+### Diagnostics sweep continued (same session): config, exclude, fonts, fsutil
+
+- `config.go`: deleted dead `KindNone` sentinel (`Load` signals "absent" as `(nil, nil)`); `err.(*ReadError)` →
+  `var re *ReadError; errors.As(err, &re)` (the form `config_test.go` uses); unused `DefaultPath` wired up —
+  `app.go:374`'s identical join now calls `config.DefaultPath(a.appDir)`, param renamed `exePath`→`exeDir`.
+- `config_test.go`: complexity-16 `TestSaveLoadAtomicAndMode` → helpers `loadCfg`/`checkCfgMode`/`checkNoLeftoverTemps`
+  below the test (the nil check in `loadCfg` also cleared 2 potential-nil-deref warnings).
+- `resolve_test.go`: complexity-24 table test → named `tokenCase` struct + `checkTokenOutcome`/`checkTokenFailure`.
+- `exclude.go`: complexity-24 `Apply` → flat loop + `classifySystemFont`/`classifyUserFont`/`applyExclusionFile`
+  (Decision by pointer; reasons and fail-closed semantics verbatim).
+- `owner_windows.go`: unused `logf` in `newOSClassifier` → `_` (signature shared with the Linux sibling).
+- `pkg_linux.go`: `queryRpm`/`queryPacman`/`queryApk` (15/15/18) → shared `outputLines`/`ownedPath`/`requireAnswered`
+  helpers; error strings parameterized by manager name, byte-identical output. File is `//go:build linux`, so verified
+  with `GOOS=linux go build`/`vet` (host is win32) — no Linux runtime test possible here; parse regressions would
+  surface
+  as "query did not answer" on a real Linux box.
+- `fonts/scan.go`: local `real` collided with an SDK builtin → `realPath` (the on-disk `scanDir` rename matches).
+- `fsutil.go`: 4 cleanup best-effort calls got `_ =` + comment (`AtomicWrite` cleanup closure, post-Close and
+  post-Rename removals); deleted uncalled `CopyFile` and `DirWritable` — app's own `checkDirWritable` (5 call sites) has
+  different messages/close-precedence, so no rewiring. Dropped the then-unused `io` import.
+- Verified after each step: gofmt clean (used `gofmt -w` once for a leftover blank line), `go vet ./...` clean, final
+  `go test -count=1 ./...` fully green (app 88.5s).
+
 ## Session log — 2026-10-30
 
 ## Project
@@ -188,3 +211,9 @@ package/test API.
   error ("type error has no field or method Is"). Use `errors.Is`/`errors.AsType` (this SDK names it `AsType`, not
   `As`; `errors.Is` at `src/errors/wrap.go` has the usual unwrap-chain semantics). Same family as the `filepath.Walk`
   non-upstream shape noted above.
+- SDK builtins collide with plain names: `real` is a builtin (GoLand warns "collides with the 'builtin' function").
+  Prefer names like `realPath` for locals; check other flagged names (scan.go was fixed this way).
+- `os.Remove`/`File.Close` return `error` in this toolchain, so bare calls are real dropped errors — silence
+  deliberately with `_ =` + comment, never leave bare.
+- GoLand `mcp__ide__getDiagnostics` intermittently times out (often right after a long `go test` run re-indexing);
+  retry, or fall back to `gofmt -l -e` + `go vet` for verification and ask the user for the squiggle text.
