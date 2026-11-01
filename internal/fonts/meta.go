@@ -159,67 +159,138 @@ func namePriority(platform, encoding uint16) int {
 }
 
 func readNameTable(data []byte) (map[uint16]string, error) {
-	tables, err := readTableDir(data)
+	h, err := nameTableHeader(data)
 	if err != nil {
 		return nil, err
+	}
+	best, err := bestNameCandidates(data, h)
+	if err != nil {
+		return nil, err
+	}
+	return nameValues(best), nil
+}
+
+// nameHeader is a validated name-table header: where its records start, how
+// many there are, and where its string data starts.
+type nameHeader struct {
+	base, records, stringOffset int
+}
+
+// nameTableHeader locates the "name" table and validates its header.
+func nameTableHeader(data []byte) (nameHeader, error) {
+	tables, err := readTableDir(data)
+	if err != nil {
+		return nameHeader{}, err
 	}
 	t, ok := tables["name"]
 	if !ok {
 		// Fonts without a name table are invalid for our purposes: identity
 		// cannot be established.
-		return nil, fmt.Errorf("invalid font: no name table")
+		return nameHeader{}, fmt.Errorf("invalid font: no name table")
 	}
 	if t.length < 6 {
-		return nil, fmt.Errorf("invalid font: name table too short")
+		return nameHeader{}, fmt.Errorf("invalid font: name table too short")
 	}
 	base := int(t.offset)
 	format := binary.BigEndian.Uint16(data[base : base+2])
 	if format != 0 && format != 1 {
-		return nil, fmt.Errorf("invalid font: unsupported name table format %d", format)
+		return nameHeader{}, fmt.Errorf("invalid font: unsupported name table format %d", format)
 	}
-	count := int(binary.BigEndian.Uint16(data[base+2 : base+4]))
-	stringOffset := int(binary.BigEndian.Uint16(data[base+4 : base+6]))
-	if base+6+12*count > len(data) {
-		return nil, fmt.Errorf("invalid font: name records out of bounds")
+	h := nameHeader{
+		base:         base,
+		records:      int(binary.BigEndian.Uint16(data[base+2 : base+4])),
+		stringOffset: int(binary.BigEndian.Uint16(data[base+4 : base+6])),
 	}
-	type candidate struct {
-		priority int
-		order    int
-		value    string
+	if h.base+6+12*h.records > len(data) {
+		return nameHeader{}, fmt.Errorf("invalid font: name records out of bounds")
 	}
+	return h, nil
+}
+
+// nameRecord is one name-table record with the bytes of its string resolved.
+// order is the record's position in the table, which breaks priority ties.
+type nameRecord struct {
+	platform, encoding, id uint16
+	order                  int
+	raw                    []byte
+}
+
+// nameRecordAt reads record i. A string that runs past the end of the file
+// aborts the load rather than skipping the record.
+func nameRecordAt(data []byte, h nameHeader, i int) (nameRecord, error) {
+	rec := data[h.base+6+12*i : h.base+18+12*i]
+	r := nameRecord{
+		platform: binary.BigEndian.Uint16(rec[0:2]),
+		encoding: binary.BigEndian.Uint16(rec[2:4]),
+		id:       binary.BigEndian.Uint16(rec[6:8]),
+		order:    i,
+	}
+	length := int(binary.BigEndian.Uint16(rec[8:10]))
+	start := h.base + h.stringOffset + int(binary.BigEndian.Uint16(rec[10:12]))
+	if start < 0 || start+length > len(data) {
+		return nameRecord{}, fmt.Errorf("invalid font: name string out of bounds")
+	}
+	r.raw = data[start : start+length]
+	return r, nil
+}
+
+// candidate is the value currently held for a name ID: the decoded string plus
+// what made it win (priority, then table order).
+type candidate struct {
+	priority int
+	order    int
+	value    string
+}
+
+// bestNameCandidates walks the records in table order: a record whose string
+// is out of bounds aborts the load, one that cannot be decoded is skipped.
+func bestNameCandidates(data []byte, h nameHeader) (map[uint16]candidate, error) {
 	best := make(map[uint16]candidate)
-	for i := range count {
-		rec := data[base+6+12*i : base+18+12*i]
-		platform := binary.BigEndian.Uint16(rec[0:2])
-		encoding := binary.BigEndian.Uint16(rec[2:4])
-		id := binary.BigEndian.Uint16(rec[6:8])
-		length := int(binary.BigEndian.Uint16(rec[8:10]))
-		offset := int(binary.BigEndian.Uint16(rec[10:12]))
-		start := base + stringOffset + offset
-		if start < 0 || start+length > len(data) {
-			return nil, fmt.Errorf("invalid font: name string out of bounds")
+	for i := range h.records {
+		r, err := nameRecordAt(data, h, i)
+		if err != nil {
+			return best, err
 		}
-		raw := data[start : start+length]
-		value, ok := decodeNameString(platform, encoding, raw)
-		if !ok {
-			continue
-		}
-		c := candidate{priority: namePriority(platform, encoding), order: i, value: value}
-		if prev, ok := best[id]; !ok || c.priority > prev.priority ||
-			(c.priority == prev.priority && c.order < prev.order) {
-			best[id] = c
-		}
+		addCandidate(best, r)
 	}
+	return best, nil
+}
+
+// addCandidate decodes a record and records it when it beats what that name ID
+// already holds.
+func addCandidate(best map[uint16]candidate, r nameRecord) {
+	value, ok := decodeNameString(r.platform, r.encoding, r.raw)
+	if !ok {
+		return
+	}
+	c := candidate{priority: namePriority(r.platform, r.encoding), order: r.order, value: value}
+	prev, found := best[r.id]
+	if !found || outranks(c, prev) {
+		best[r.id] = c
+	}
+}
+
+// outranks reports whether c wins over the candidate already held for a name ID:
+// a higher priority, or the same priority from an earlier record.
+func outranks(c candidate, prev candidate) bool {
+	if c.priority != prev.priority {
+		return c.priority > prev.priority
+	}
+	return c.order < prev.order
+}
+
+// nameValues projects the winning candidates to their strings.
+func nameValues(best map[uint16]candidate) map[uint16]string {
 	out := make(map[uint16]string, len(best))
 	for id, c := range best {
 		out[id] = c.value
 	}
-	return out, nil
+	return out
 }
 
 func decodeNameString(platform, encoding uint16, raw []byte) (string, bool) {
 	switch {
-	case platform == 0, (platform == 3 && encoding == 10):
+	case platform == 0, platform == 3 && encoding == 10:
 		// Unicode: UTF-16BE.
 		if len(raw)%2 != 0 {
 			return "", false
