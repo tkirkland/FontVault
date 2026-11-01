@@ -1,10 +1,11 @@
-// Package gitops runs git and git-lfs commands on behalf of fontvault.
+package gitops
+
+// Package git ops runs git and git-lfs commands on behalf of fontvault.
 //
 // The GitHub token is supplied to every invocation via
 // `-c http.extraHeader=AUTHORIZATION: basic <base64>`. It is never placed in
 // a URL, in git config, or on disk, and it is redacted from logs and error
 // text.
-package gitops
 
 import (
 	"bytes"
@@ -47,8 +48,8 @@ func (r *Runner) authArgs() []string {
 	if r.Token == "" {
 		return nil
 	}
-	creds := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + r.Token))
-	return []string{"-c", "http.extraHeader=AUTHORIZATION: basic " + creds}
+	credentials := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + r.Token))
+	return []string{"-c", "http.extraHeader=AUTHORIZATION: basic " + credentials}
 }
 
 // baseEnv returns the environment for git subprocesses: non-interactive,
@@ -72,8 +73,8 @@ func (r *Runner) redact(s string) string {
 		return s
 	}
 	s = strings.ReplaceAll(s, r.Token, "<redacted>")
-	creds := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + r.Token))
-	s = strings.ReplaceAll(s, creds, "<redacted>")
+	credentials := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + r.Token))
+	s = strings.ReplaceAll(s, credentials, "<redacted>")
 	return s
 }
 
@@ -127,7 +128,7 @@ func (r *Runner) run(ctx context.Context, dir string, env []string, stdin []byte
 }
 
 // Pipe streams stdout of git cmd1 into git cmd2 and returns cmd2's stdout.
-// It is used for `git cat-file blob <ref>:<path> | git lfs smudge <path>`.
+// It is used for `git cat-file blob <ref>:<path> | git-lfs smudge <path>`.
 func (r *Runner) Pipe(ctx context.Context, dir string, env []string, args1, args2 []string) ([]byte, error) {
 	cmd1 := exec.CommandContext(ctx, "git", append(r.authArgs(), args1...)...)
 	cmd1.Dir = dir
@@ -155,7 +156,8 @@ func (r *Runner) Pipe(ctx context.Context, dir string, env []string, args1, args
 		return nil, fmt.Errorf("start git %s: %w", r.logArgs(args1), err)
 	}
 	if err := cmd2.Start(); err != nil {
-		cmd1.Wait()
+		// Best effort: reap cmd1; the cmd2 start failure is the reported cause.
+		_ = cmd1.Wait()
 		return nil, fmt.Errorf("start git %s: %w", r.logArgs(args2), err)
 	}
 	err1 := cmd1.Wait()
@@ -178,7 +180,7 @@ func (r *Runner) RunStdin(ctx context.Context, dir string, stdin []byte, args ..
 
 // ---- higher level helpers -------------------------------------------------
 
-// LFSInstall runs `git lfs install --skip-repo` (preflight).
+// LFSInstall runs `git-lfs install --skip-repo` (preflight).
 func (r *Runner) LFSInstall(ctx context.Context) (string, error) {
 	return r.Run(ctx, "", "lfs", "install", "--skip-repo")
 }
@@ -416,7 +418,7 @@ func (r *Runner) StagedFontPaths(ctx context.Context, dir string) ([]string, err
 		return nil, nil
 	}
 	var fonts []string
-	for _, p := range strings.Split(out, "\n") {
+	for p := range strings.SplitSeq(out, "\n") {
 		lp := strings.ToLower(p)
 		if strings.HasSuffix(lp, ".ttf") || strings.HasSuffix(lp, ".otf") {
 			fonts = append(fonts, p)
@@ -445,29 +447,37 @@ func (r *Runner) Reset(ctx context.Context, dir string) (string, error) {
 // IsLFSPointer reports whether blob bytes are a Git LFS pointer whose
 // sha256 oid matches expectedSHA (a 64-hex string).
 func IsLFSPointer(blob []byte, expectedSHA string) bool {
-	text := string(blob)
-	lines := strings.SplitN(strings.TrimSuffix(text, "\n"), "\n", 3)
+	lines := strings.SplitN(strings.TrimSuffix(string(blob), "\n"), "\n", 3)
 	if len(lines) < 2 || lines[0] != "version https://git-lfs.github.com/spec/v1" {
 		return false
 	}
-	oidLine := ""
-	for _, l := range lines[1:] {
-		if strings.HasPrefix(l, "oid ") {
-			oidLine = l
-			break
-		}
-	}
+	oidLine := findOidLine(lines)
 	if !strings.HasPrefix(oidLine, "oid sha256:") {
 		return false
 	}
 	oid := strings.TrimPrefix(oidLine, "oid sha256:")
-	if len(oid) != 64 {
+	return isHex64(oid) && strings.EqualFold(oid, expectedSHA)
+}
+
+// findOidLine returns the first "oid …" line of a pointer body, if any.
+func findOidLine(lines []string) string {
+	for _, l := range lines[1:] {
+		if strings.HasPrefix(l, "oid ") {
+			return l
+		}
+	}
+	return ""
+}
+
+// isHex64 reports whether s is exactly 64 hex digits.
+func isHex64(s string) bool {
+	if len(s) != 64 {
 		return false
 	}
-	for _, c := range oid {
+	for _, c := range s {
 		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
 			return false
 		}
 	}
-	return strings.EqualFold(oid, expectedSHA)
+	return true
 }
