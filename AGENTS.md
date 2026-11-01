@@ -69,6 +69,21 @@ Same `fontvault` project as before (see session logs of 2026-10-31 and 2026-10-3
   cleaned it). Byte-identity guarded by `report_test.go` (exact rendered text) plus app integration tests.
   Verified: IDE 0 diagnostics (asked before tests), `gofmt -l -e` clean, `go vet` clean, `go test -count=1 ./...`
   fully green (app 92.9s); LF preserved.
+- `internal/workdir/prepare.go`: cleared all 9 diagnostics (complexity 20/42/46 on `GitAttributesComplete`,
+  `EnsureReady`, `prepareExisting`, plus 6 "Unhandled error" in `EnsureReady`). Same split convention, all helpers
+  immediately below their caller: `GitAttributesComplete` → `hasLFSRule(content, ext)` + `allLFSAttrs(joined)`
+  (closure became file-level); `EnsureReady` → 3-line body `lockAndPrepare` / `cloneFresh` / `cloneFailure` — the
+  four identical "acquire → prepare → release-on-error" blocks collapsed into `lockAndPrepare` (a fifth into
+  `lockAndInit` for the empty-remote path); the leftover-lock scan lives in `cloneFresh`, the two recoverable
+  clone-error recoveries in `cloneFailure` (all `fmt` messages byte-identical). Helpers: `lockFileLive(dir)` (plain
+  fn), `releaseQuietly(lock)` (`_ = lock.Release()`, `removeTempQuietly` precedent) replaced the 5 bare
+  `lock.Release()`, and the bare dead-leftover `os.Remove` got `_ =` + comment. `prepareExisting` →
+  `checkRemote` + `checkClean` + `prepareUnborn` + `prepareBranch` (the first `RevParse` value was dead in both
+  arms, so it's `if _, headErr := RevParse` in the caller; each branch re-parses HEAD as before). **Threshold note
+  for future sweeps: the IDE flags cognitive complexity at 15, not 20** — `EnsureReady` still read 15 after the
+  first split and needed the extra `cloneFresh`/`cloneFailure` extraction. No `os.DirEntry` named (helper keeps
+  the loop inside `cloneFresh` per the DirEntry caution). Verified: IDE 0 diagnostics, `gofmt -l -e` clean,
+  `go vet` clean, `go test -count=1 ./...` fully green (app 94.3s), LF preserved.
 
 ## Project memory — session of 2026-10-31
 
