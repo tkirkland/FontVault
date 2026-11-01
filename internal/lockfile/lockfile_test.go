@@ -36,7 +36,9 @@ func TestAcquireRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lock2.Release()
+	if err := lock2.Release(); err != nil {
+		t.Errorf("release after re-acquire: %v", err)
+	}
 }
 
 func TestStaleLockReplaced(t *testing.T) {
@@ -50,7 +52,9 @@ func TestStaleLockReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stale lock must be replaced: %v", err)
 	}
-	lock.Release()
+	if err := lock.Release(); err != nil {
+		t.Errorf("release after stale replace: %v", err)
+	}
 }
 
 func TestLiveLockKept(t *testing.T) {
