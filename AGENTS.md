@@ -152,6 +152,31 @@ while preserving behavior.
 - Verified: `gofmt -l -e` clean, `go vet ./...` clean, `go test -count=1 ./internal/workdir` green, then full
   `go test -count=1 ./...` fully green (app 94.1s); LF endings preserved (0 CR bytes in the file).
 
+### `readNameTable` complexity (internal/fonts/meta.go), same session
+
+- Same shape a third time. `readNameTable` (58 lines: header validation + a 12-record byte-slicing loop + a
+  priority-then-order merge written as a 3-clause `||` chain + a projection) is now 10 lines: `nameTableHeader` →
+  `bestNameCandidates` → `nameValues`. Helpers immediately below it:
+    - `nameHeader {base, records, stringOffset int}` + `nameTableHeader(data)` — table lookup, the
+      `length < 6` guard, format 0/1 check, the `base+6+12*count > len(data)` check. All six error strings
+      byte-identical,
+      including `"invalid font: unsupported name table format %d"`; returns `nameHeader{}` alongside the error.
+    - `nameRecord {platform, encoding, id uint16; order int; raw []byte}` + `nameRecordAt(data, h, i)` — the 12-byte
+      record parse and the `"name string out of bounds"` abort in one place; `order` carries the record index so
+      tie-breaking needs no extra parameter.
+    - `nameRecord`-level `addCandidate(best, r)` — decodes, skips undecodable records, records when it wins.
+    - `outranks(c, prev)` replaces the
+      `c.priority > prev.priority || (c.priority == prev.priority && c.order < prev.order)`
+      chain (enumerated: higher/lower/equal priority all match the original).
+    - `candidate` moved from a function-local type to file scope (required so the helpers can name it).
+- Order of operations per record is unchanged: bounds check before decode, so "abort" vs "skip" land on the same records
+  as before; iteration is still table order `0..records-1`, so the same candidate wins. `readNameTable`'s signature is
+  untouched, so `meta.go:88` in `Parse` is untouched.
+- `gofmt -l -e` flagged only my `nameRecord` field alignment; fixed with `gofmt -w` (re-checked: file now gofmt-clean).
+- Verified: `gofmt` clean, `go vet ./...` clean, `go test -count=1 ./internal/fonts` green, full
+  `go test -count=1 ./...`
+  fully green (app 92.0s); LF endings preserved.
+
 ## Session log — 2026-10-30
 
 ## Project
