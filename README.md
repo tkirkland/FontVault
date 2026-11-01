@@ -48,21 +48,21 @@ fontvault -s <system|user> [-d <push|pull|sync> | -c] [flags]
 
 Every switch has a short and a long form.
 
-| Short | Long             | Value                    | Persisted in cfg | Notes                                                                                                    |
-| ----- | ---------------- | ------------------------ | ---------------- | -------------------------------------------------------------------------------------------------------- |
-| `-s`  | `--source`       | `system` \| `user`       | no               | Required on every run. Selects the local font dir that is read (push/compare) and installed into (pull). |
-| `-d`  | `--direction`    | `push` \| `pull` \| `sync` | no             |                                                                                                          |
-| `-c`  | `--compare`      | —                        | no               | Same as omitting `-d`. Exclusive with `-d`.                                                              |
-| `-b`  | `--branch`       | name                     | yes              | Default `main`.                                                                                          |
-| `-w`  | `--workdir`      | path                     | yes              | Default: `<user cache dir>/fontvault/<login>_fontvault`.                                                 |
-| `-t`  | `--token`        | token                    | yes              |                                                                                                          |
-| `-e`  | `--token-env`    | env var name             | yes              | Default `GITHUB_TOKEN`.                                                                                  |
-| `-x`  | `--exclude-file` | path                     | yes              | One entry per line: a SHA-256 hash or a case-insensitive family name; `#` starts a comment.              |
-| `-n`  | `--dry-run`      | —                        | no               | Performs every step up to the first write and prints exactly what would be done.                         |
-| `-y`  | `--yes`          | —                        | no               | Answers yes to the settings confirmation and repo creation; conflicts are skipped and listed.            |
-| `-v`  | `--verbose`      | —                        | no               | Debug logging to stderr.                                                                                 |
-| `-h`  | `--help`         | —                        | no               | Full usage.                                                                                              |
-| `-V`  | `--version`      | —                        | no               | Prints the version injected at build time.                                                               |
+| Short | Long             | Value                      | Persisted in cfg | Notes                                                                                                    |
+|-------|------------------|----------------------------|------------------|----------------------------------------------------------------------------------------------------------|
+| `-s`  | `--source`       | `system` \| `user`         | no               | Required on every run. Selects the local font dir that is read (push/compare) and installed into (pull). |
+| `-d`  | `--direction`    | `push` \| `pull` \| `sync` | no               |                                                                                                          |
+| `-c`  | `--compare`      | —                          | no               | Same as omitting `-d`. Exclusive with `-d`.                                                              |
+| `-b`  | `--branch`       | name                       | yes              | Default `main`.                                                                                          |
+| `-w`  | `--workdir`      | path                       | yes              | Default: `<user cache dir>/fontvault/<login>_fontvault`.                                                 |
+| `-t`  | `--token`        | token                      | yes              |                                                                                                          |
+| `-e`  | `--token-env`    | env var name               | yes              | Default `GITHUB_TOKEN`.                                                                                  |
+| `-x`  | `--exclude-file` | path                       | yes              | One entry per line: a SHA-256 hash or a case-insensitive family name; `#` starts a comment.              |
+| `-n`  | `--dry-run`      | —                          | no               | Performs every step up to the first write and prints exactly what would be done.                         |
+| `-y`  | `--yes`          | —                          | no               | Answers yes to the settings confirmation and repo creation; conflicts are skipped and listed.            |
+| `-v`  | `--verbose`      | —                          | no               | Debug logging to stderr.                                                                                 |
+| `-h`  | `--help`         | —                          | no               | Full usage.                                                                                              |
+| `-V`  | `--version`      | —                          | no               | Prints the version injected at build time.                                                               |
 
 ### Examples
 
