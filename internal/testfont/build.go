@@ -41,15 +41,29 @@ func Build(t testing.TB, s Spec) []byte {
 	return build(s)
 }
 
-// MustBuild is Build for use outside tests.
-func MustBuild(s Spec) []byte { return build(s) }
-
 func build(s Spec) []byte {
 	var tables [][]byte
 	add := func(tag string, data []byte) { tables = append(tables, append([]byte(tag), data...)) }
 
-	// cmap: format 4, a single segment mapping U+FFFF to glyph 1 (out of
-	// range for a 1-glyph font, so lookups yield "not found").
+	add("cmap", cmapBytes())
+	add("head", headBytes(s))
+	if s.OTTO {
+		addOTTOTables(add)
+	} else {
+		addTTFTables(add)
+	}
+	add("OS/2", os2Bytes(s))
+	add("post", postBytes())
+	add("name", nameTable(s))
+	if len(s.Filler) > 0 {
+		add("FILL", s.Filler)
+	}
+	return assemble(tables, s.OTTO)
+}
+
+// cmapBytes: format 4, a single segment mapping U+FFFF to glyph 1 (out of
+// range for a 1-glyph font, so lookups yield "not found").
+func cmapBytes() []byte {
 	cmap := make([]byte, 4+8+24)
 	binary.BigEndian.PutUint16(cmap[0:], 0) // version
 	binary.BigEndian.PutUint16(cmap[2:], 1) // numTables
@@ -67,8 +81,11 @@ func build(s Spec) []byte {
 	binary.BigEndian.PutUint16(sub[14:], 0xFFFF)
 	binary.BigEndian.PutUint16(sub[18:], 0xFFFF)
 	binary.BigEndian.PutUint16(sub[20:], 1) // idDelta -> glyph 1
-	add("cmap", cmap)
+	return cmap
+}
 
+// headBytes: sfnt version, the spec's fontRevision, and fixed sane metrics.
+func headBytes(s Spec) []byte {
 	head := make([]byte, 54)
 	binary.BigEndian.PutUint32(head[0:], 0x00010000)
 	binary.BigEndian.PutUint32(head[4:], s.Revision) // fontRevision 16.16
@@ -77,46 +94,51 @@ func build(s Spec) []byte {
 	binary.BigEndian.PutUint16(head[46:], 8)    // lowestRecPPEM
 	binary.BigEndian.PutUint16(head[48:], 2)    // fontDirectionHint
 	// indexToLocFormat = 0 (short), glyphDataFormat = 0
-	add("head", head)
+	return head
+}
 
-	if s.OTTO {
-		maxp := make([]byte, 6)
-		binary.BigEndian.PutUint32(maxp[0:], 0x00005000)
-		binary.BigEndian.PutUint16(maxp[4:], 5) // matches the CFF table
-		add("maxp", maxp)
+// addOTTOTables adds the tables an OpenType (CFF) font needs beyond cmap/head.
+func addOTTOTables(add func(tag string, data []byte)) {
+	maxp := make([]byte, 6)
+	binary.BigEndian.PutUint32(maxp[0:], 0x00005000)
+	binary.BigEndian.PutUint16(maxp[4:], 5) // matches the CFF table
+	add("maxp", maxp)
 
-		hhea := hheaBytes(5)
-		add("hhea", hhea)
+	add("hhea", hheaBytes(5))
 
-		hmtx := make([]byte, 5*4)
-		for i := range 5 {
-			binary.BigEndian.PutUint16(hmtx[i*4:], 500)
-		}
-		add("hmtx", hmtx)
-
-		cff, err := base64.StdEncoding.DecodeString(cffTestTable)
-		if err != nil {
-			panic("testfont: bad embedded CFF: " + err.Error())
-		}
-		add("CFF ", cff)
-	} else {
-		maxp := make([]byte, 32)
-		binary.BigEndian.PutUint32(maxp[0:], 0x00010000)
-		binary.BigEndian.PutUint16(maxp[4:], 1) // numGlyphs
-		add("maxp", maxp)
-
-		hhea := hheaBytes(1)
-		add("hhea", hhea)
-
-		hmtx := make([]byte, 4)
-		binary.BigEndian.PutUint16(hmtx[0:], 500)
-		add("hmtx", hmtx)
-
-		loca := make([]byte, 4) // short format, [0, 0]: glyph 0 is empty
-		add("loca", loca)
-		add("glyf", nil)
+	hmtx := make([]byte, 5*4)
+	for i := range 5 {
+		binary.BigEndian.PutUint16(hmtx[i*4:], 500)
 	}
+	add("hmtx", hmtx)
 
+	cff, err := base64.StdEncoding.DecodeString(cffTestTable)
+	if err != nil {
+		panic("testfont: bad embedded CFF: " + err.Error())
+	}
+	add("CFF ", cff)
+}
+
+// addTTFTables adds the tables a TrueType font needs beyond cmap/head.
+func addTTFTables(add func(tag string, data []byte)) {
+	maxp := make([]byte, 32)
+	binary.BigEndian.PutUint32(maxp[0:], 0x00010000)
+	binary.BigEndian.PutUint16(maxp[4:], 1) // numGlyphs
+	add("maxp", maxp)
+
+	add("hhea", hheaBytes(1))
+
+	hmtx := make([]byte, 4)
+	binary.BigEndian.PutUint16(hmtx[0:], 500)
+	add("hmtx", hmtx)
+
+	loca := make([]byte, 4) // short format, [0, 0]: glyph 0 is empty
+	add("loca", loca)
+	add("glyf", nil)
+}
+
+// os2Bytes carries the spec's achVendID plus fixed sane metrics.
+func os2Bytes(s Spec) []byte {
 	os2 := make([]byte, 96)
 	binary.BigEndian.PutUint16(os2[0:], 2)       // version 2
 	binary.BigEndian.PutUint16(os2[2:], 500)     // xAvgCharWidth
@@ -135,25 +157,25 @@ func build(s Spec) []byte {
 	binary.BigEndian.PutUint16(os2[76:], 200)    // usWinDescent
 	binary.BigEndian.PutUint16(os2[86:], 500)    // sxHeight
 	binary.BigEndian.PutUint16(os2[88:], 700)    // sCapHeight
-	add("OS/2", os2)
+	return os2
+}
 
+// postBytes is the minimal v3.0 post table (no glyph names needed for 1 glyph).
+func postBytes() []byte {
 	post := make([]byte, 32)
 	binary.BigEndian.PutUint32(post[0:], 0x00030000)
-	add("post", post)
+	return post
+}
 
-	add("name", nameTable(s))
-
-	if len(s.Filler) > 0 {
-		add("FILL", s.Filler)
-	}
-
-	// Assemble: header + table directory (sorted by tag) + aligned tables.
+// assemble sorts the tagged tables by tag, writes the sfnt header and table
+// directory (with the numTables search math), then the 4-byte-aligned bodies.
+func assemble(tables [][]byte, otto bool) []byte {
 	sort.SliceStable(tables, func(i, j int) bool {
 		return string(tables[i][:4]) < string(tables[j][:4])
 	})
 	n := len(tables)
 	out := make([]byte, 12+16*n)
-	if s.OTTO {
+	if otto {
 		binary.BigEndian.PutUint32(out[0:], 0x4F54544F)
 	} else {
 		binary.BigEndian.PutUint32(out[0:], 0x00010000)
@@ -270,15 +292,3 @@ const cffTestTable = "AQAEBAABAQEIQ0ZGVGVzdAABAgABADH4DwD4HAH4HQL4HgP4GAQe4Rol/w
 	"V/kl94EV/AT3Kvd693gF96X8UhXW6cb3g/sb9zf7JvdD+52C+yz7Mvsx+ziy+6r3GPse9xP7GPek" +
 	"xNzWCNsxydsFDveJ4QP3IficFYf7OPcAt+H8CqP4GPcAn4H3TvsEb4H3OjOFg/tSBQ747BT3uRV3" +
 	"n/muiwaLDArvCu8MDPdcC9uR9wYMDQ=="
-
-// MustBeValid fails the test if b is not a parseable font; it exists so call
-// sites can assert fixture validity explicitly.
-func MustBeValid(t testing.TB, b []byte, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("font bytes not valid: %v", err)
-	}
-	if len(b) < 12 {
-		t.Fatalf("font too short: %d bytes", len(b))
-	}
-}
