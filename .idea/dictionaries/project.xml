@@ -15,14 +15,17 @@
       <w>housekeep</w>
       <w>hwnd</w>
       <w>keyhash</w>
+      <w>lerr</w>
       <w>loca</w>
       <w>lowestRecPPEM</w>
       <w>macroman</w>
       <w>maxp</w>
       <w>octocat</w>
       <w>pathspec</w>
+      <w>perr</w>
       <w>psname</w>
       <w>rerr</w>
+      <w>serr</w>
       <w>sfnt</w>
       <w>testfont</w>
     </words>
