@@ -26,7 +26,7 @@ func GitAttributesComplete(content string) bool {
 // hasLFSRule reports whether one non-comment line for the pattern ext carries
 // all four LFS attributes.
 func hasLFSRule(content, ext string) bool {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") || line == "" {
 			continue
@@ -138,7 +138,7 @@ func (m *Manager) cloneFailure(ctx context.Context, dir, remoteURL, branch strin
 }
 
 // lockAndPrepare acquires the lock and prepares the existing repository,
-// releasing the lock when preparation fails (best effort: the preparation
+// releasing the lock when preparation fails (the best effort: the preparation
 // error is the reported cause).
 func (m *Manager) lockAndPrepare(ctx context.Context, dir, remoteURL, branch string) (*State, *lockfile.Lock, error) {
 	lock, lerr := lockfile.Acquire(dir)
@@ -154,7 +154,7 @@ func (m *Manager) lockAndPrepare(ctx context.Context, dir, remoteURL, branch str
 }
 
 // lockAndInit acquires the lock and initializes an empty repository,
-// releasing the lock when initialization fails (best effort: the init
+// releasing the lock when initialization fails (the best effort: the init
 // error is the reported cause).
 func (m *Manager) lockAndInit(ctx context.Context, dir, remoteURL, branch string) (*State, *lockfile.Lock, error) {
 	lock, lerr := lockfile.Acquire(dir)
@@ -178,7 +178,7 @@ func lockFileLive(dir string) bool {
 }
 
 // releaseQuietly releases a lock during error cleanup; the caller's error
-// stays the reported cause (best effort).
+// stays the reported cause (the best effort).
 func releaseQuietly(lock *lockfile.Lock) {
 	_ = lock.Release()
 }
