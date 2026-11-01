@@ -144,41 +144,49 @@ func Filename(now time.Time) string {
 // stdout.
 func (r *Report) Render() string {
 	var b strings.Builder
+	r.renderHeader(&b)
+	byName := sectionsByName(r.Sections)
+	renderSummary(&b, byName)
+	renderSections(&b, byName)
+	return b.String()
+}
+
+// renderHeader prints the report header block.
+func (r *Report) renderHeader(b *strings.Builder) {
 	b.WriteString("fontvault report\n\n")
-	fmt.Fprintf(&b, "timestamp: %s\n", r.Header.Timestamp.Format("2006-01-02 15:04:05 -0700"))
-	fmt.Fprintf(&b, "version: %s\n", dash(r.Header.Version))
-	fmt.Fprintf(&b, "mode: %s\n", dash(r.Header.Mode))
-	fmt.Fprintf(&b, "os: %s\n", dash(r.Header.OS))
-	fmt.Fprintf(&b, "source: %s\n", dash(r.Header.Source))
+	_, _ = fmt.Fprintf(b, "timestamp: %s\n", r.Header.Timestamp.Format("2006-01-02 15:04:05 -0700"))
+	_, _ = fmt.Fprintf(b, "version: %s\n", dash(r.Header.Version))
+	_, _ = fmt.Fprintf(b, "mode: %s\n", dash(r.Header.Mode))
+	_, _ = fmt.Fprintf(b, "os: %s\n", dash(r.Header.OS))
+	_, _ = fmt.Fprintf(b, "source: %s\n", dash(r.Header.Source))
 	if len(r.Header.FontDirs) == 0 {
 		b.WriteString("font dirs: (none)\n")
 	} else {
 		b.WriteString("font dirs:\n")
 		for _, d := range r.Header.FontDirs {
-			fmt.Fprintf(&b, "  - %s\n", d)
+			_, _ = fmt.Fprintf(b, "  - %s\n", d)
 		}
 	}
-	fmt.Fprintf(&b, "repository: %s\n", dash(r.Header.Repo))
-	fmt.Fprintf(&b, "branch: %s\n", dash(r.Header.Branch))
+	_, _ = fmt.Fprintf(b, "repository: %s\n", dash(r.Header.Repo))
+	_, _ = fmt.Fprintf(b, "branch: %s\n", dash(r.Header.Branch))
 	if r.Header.BaseSHA == "" {
-		fmt.Fprintf(&b, "commit compared: (empty repository)\n")
+		_, _ = fmt.Fprintf(b, "commit compared: (empty repository)\n")
 	} else {
-		fmt.Fprintf(&b, "commit compared: %s\n", r.Header.BaseSHA)
+		_, _ = fmt.Fprintf(b, "commit compared: %s\n", r.Header.BaseSHA)
 	}
 	if r.Header.Mode == "push" || r.Header.Mode == "sync" {
 		newSHA := r.Header.NewSHA
 		if newSHA == "" {
 			newSHA = "(no new commit)"
 		}
-		fmt.Fprintf(&b, "new commit: %s\n", newSHA)
+		_, _ = fmt.Fprintf(b, "new commit: %s\n", newSHA)
 	}
+}
 
+// renderSummary prints the summary block: present sections in canonical
+// order.
+func renderSummary(b *strings.Builder, byName map[string]*Section) {
 	b.WriteString("\nsummary\n")
-	// Present sections in canonical order; compute summary lines.
-	byName := map[string]*Section{}
-	for _, s := range r.Sections {
-		byName[s.Name] = s
-	}
 	summaryWritten := false
 	for _, name := range SectionOrder {
 		s, ok := byName[name]
@@ -187,80 +195,105 @@ func (r *Report) Render() string {
 		}
 		summaryWritten = true
 		if name == SectionSkippedFormats {
-			fmt.Fprintf(&b, "  %s: %s\n", name, formatCounts(s.Counts))
+			_, _ = fmt.Fprintf(b, "  %s: %s\n", name, formatCounts(s.Counts))
 		} else {
-			fmt.Fprintf(&b, "  %s: %d\n", name, len(s.Entries))
+			_, _ = fmt.Fprintf(b, "  %s: %d\n", name, len(s.Entries))
 		}
 	}
 	if !summaryWritten {
 		b.WriteString("  (nothing to report)\n")
 	}
+}
 
+// sectionsByName indexes sections by name; last write wins, as before.
+func sectionsByName(ss []*Section) map[string]*Section {
+	m := map[string]*Section{}
+	for _, s := range ss {
+		m[s.Name] = s
+	}
+	return m
+}
+
+// renderSections prints each present section body in canonical order.
+func renderSections(b *strings.Builder, byName map[string]*Section) {
 	for _, name := range SectionOrder {
 		s, ok := byName[name]
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(&b, "\n%s\n", name)
+		_, _ = fmt.Fprintf(b, "\n%s\n", name)
 		if name == SectionSkippedFormats {
-			exts := make([]string, 0, len(s.Counts))
-			for e := range s.Counts {
-				exts = append(exts, e)
-			}
-			sort.Strings(exts)
-			if len(exts) == 0 {
-				b.WriteString("  (none)\n")
-			}
-			for _, e := range exts {
-				fmt.Fprintf(&b, "  %s: %d\n", e, s.Counts[e])
-			}
-			continue
-		}
-		if len(s.Entries) == 0 {
+			renderCountsBody(b, s)
+		} else if len(s.Entries) == 0 {
 			b.WriteString("  (none)\n")
-			continue
-		}
-		for _, e := range s.Entries {
-			if name == SectionErrors {
-				fmt.Fprintf(&b, "  %s: %s\n", dash(e.Path), e.Reason)
-				continue
-			}
-			if e.HasOther {
-				side := e.SideLabel
-				if side == "" {
-					side = "local:"
-				}
-				other := e.OtherLabel
-				if other == "" {
-					other = "repo:"
-				}
-				fmt.Fprintf(&b, "  %s | %s\n", dash(e.Family), dash(e.Subfamily))
-				fmt.Fprintf(&b, "    %-8s %s | %s | %s\n", side, dash(e.Version), dash(e.ShortHash), dash(e.Path))
-				fmt.Fprintf(&b, "    %-8s %s | %s | %s\n", other, dash(e.OtherVersion), dash(e.OtherShortHash), dash(e.OtherPath))
-				fmt.Fprintf(&b, "    reason: %s\n", dash(e.Reason))
-				continue
-			}
-			fmt.Fprintf(&b, "  %s | %s | %s | %s | %s\n",
-				dash(e.Family), dash(e.Subfamily), dash(e.Version), dash(e.ShortHash), dash(e.Path))
-			if e.Reason != "" {
-				fmt.Fprintf(&b, "    reason: %s\n", e.Reason)
+		} else {
+			for _, e := range s.Entries {
+				renderEntry(b, name, e)
 			}
 		}
 	}
-	return b.String()
+}
+
+// renderCountsBody lists the skipped-formats extensions in sorted order.
+func renderCountsBody(b *strings.Builder, s *Section) {
+	extensions := make([]string, 0, len(s.Counts))
+	for e := range s.Counts {
+		extensions = append(extensions, e)
+	}
+	sort.Strings(extensions)
+	if len(extensions) == 0 {
+		b.WriteString("  (none)\n")
+	}
+	for _, e := range extensions {
+		_, _ = fmt.Fprintf(b, "  %s: %d\n", e, s.Counts[e])
+	}
+}
+
+// renderEntry prints one entry: the errors section has its own shape, two-sided
+// conflicts form a block, everything else is the plain one-line form.
+func renderEntry(b *strings.Builder, name string, e Entry) {
+	if name == SectionErrors {
+		_, _ = fmt.Fprintf(b, "  %s: %s\n", dash(e.Path), e.Reason)
+		return
+	}
+	if e.HasOther {
+		renderConflictEntry(b, e)
+		return
+	}
+	_, _ = fmt.Fprintf(b, "  %s | %s | %s | %s | %s\n",
+		dash(e.Family), dash(e.Subfamily), dash(e.Version), dash(e.ShortHash), dash(e.Path))
+	if e.Reason != "" {
+		_, _ = fmt.Fprintf(b, "    reason: %s\n", e.Reason)
+	}
+}
+
+// renderConflictEntry prints a two-sided conflict block.
+func renderConflictEntry(b *strings.Builder, e Entry) {
+	side := e.SideLabel
+	if side == "" {
+		side = "local:"
+	}
+	other := e.OtherLabel
+	if other == "" {
+		other = "repo:"
+	}
+	_, _ = fmt.Fprintf(b, "  %s | %s\n", dash(e.Family), dash(e.Subfamily))
+	_, _ = fmt.Fprintf(b, "    %-8s %s | %s | %s\n", side, dash(e.Version), dash(e.ShortHash), dash(e.Path))
+	_, _ = fmt.Fprintf(b, "    %-8s %s | %s | %s\n", other, dash(e.OtherVersion), dash(e.OtherShortHash), dash(e.OtherPath))
+	_, _ = fmt.Fprintf(b, "    reason: %s\n", dash(e.Reason))
 }
 
 func formatCounts(counts map[string]int) string {
 	if len(counts) == 0 {
 		return "(none)"
 	}
-	exts := make([]string, 0, len(counts))
+	extensions := make([]string, 0, len(counts))
 	for e := range counts {
-		exts = append(exts, e)
+		extensions = append(extensions, e)
 	}
-	sort.Strings(exts)
-	parts := make([]string, 0, len(exts))
-	for _, e := range exts {
+	sort.Strings(extensions)
+	parts := make([]string, 0, len(extensions))
+	for _, e := range extensions {
 		parts = append(parts, fmt.Sprintf("%s: %d", e, counts[e]))
 	}
 	return strings.Join(parts, ", ")
