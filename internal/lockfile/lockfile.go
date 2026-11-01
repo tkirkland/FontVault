@@ -93,8 +93,10 @@ func writeLockFile(path string, f *os.File) (*Lock, error) {
 
 // discardLock closes and removes a lock file that could not be written.
 func discardLock(path string, f *os.File) {
-	f.Close()
-	os.Remove(path)
+	// best effort cleanup: the caller reports the write/sync failure as the
+	// cause, and a leftover half-written lock is stale-handle-replaced later.
+	_ = f.Close()
+	_ = os.Remove(path)
 }
 
 func readPID(path string) (int, error) {
