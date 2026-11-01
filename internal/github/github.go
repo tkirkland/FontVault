@@ -85,7 +85,7 @@ func (h *HTTP) do(ctx context.Context, method, path string, body any, out any) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s %s: %w", method, url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // response body; close error is not actionable
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, nil, fmt.Errorf("read response %s %s: %w", method, url, err)
