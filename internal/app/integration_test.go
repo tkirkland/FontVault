@@ -153,7 +153,7 @@ func checkFontBlobsArePointers(t *testing.T, env *testEnv, want int) {
 	head := env.head()
 	tree := env.bare("ls-tree", "-r", "--name-only", "refs/heads/main", "--", "fonts")
 	seen := 0
-	for _, p := range strings.Split(tree, "\n") {
+	for p := range strings.SplitSeq(tree, "\n") {
 		if !strings.HasSuffix(p, ".ttf") && !strings.HasSuffix(p, ".otf") {
 			continue
 		}
