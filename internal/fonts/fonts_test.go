@@ -184,9 +184,19 @@ func TestSanitizeAndPathStability(t *testing.T) {
 	if p1 != p2 {
 		t.Errorf("repo path changed when only content changed: %q vs %q", p1, p2)
 	}
-	want := "fonts/cool_family_name/cool_font_pro_plus_-" + f1.KeyHash[:8] + ".ttf"
+	fam := strings.ToLower(SanitizeComponent(f1.Family, 100))
+	want := "fonts/" + fam + "/" + archiveName(f1.Family)
 	if p1 != want {
 		t.Errorf("repo path = %q, want %q", p1, want)
+	}
+	// the member name inside that archive keeps the per-font key hash, so
+	// two fonts whose names sanitize alike stay distinguishable
+	wantMember := "cool_font_pro_plus_" + "-" + f1.KeyHash[:8] + ".ttf"
+	if got := f1.MemberName(); got != wantMember {
+		t.Errorf("member name = %q, want %q", got, wantMember)
+	}
+	if !strings.HasSuffix(wantMember, "-"+f1.KeyHash[:8]+".ttf") {
+		t.Error("member name must keep keyhash8 + ext")
 	}
 }
 
@@ -204,7 +214,7 @@ func TestSanitizeComponentCap(t *testing.T) {
 	}
 }
 
-func TestRepoFileNameCap(t *testing.T) {
+func TestMemberNameCap(t *testing.T) {
 	key := KeyOf(strings.Repeat("p", 200), "")
 	f := &Font{
 		PostScriptName: strings.Repeat("p", 200),
@@ -213,22 +223,45 @@ func TestRepoFileNameCap(t *testing.T) {
 		Key:            key,
 		KeyHash:        HashKey(key),
 	}
-	base := f.RepoFileName()
+	// the member name keeps the loose filename shape: capped at 100, with
+	// keyhash8 + ext intact after the cap cut the name down
+	base := f.MemberName()
 	if len(base) != 100 {
-		t.Errorf("filename component length = %d, want exactly 100", len(base))
+		t.Errorf("member name length = %d, want exactly 100", len(base))
 	}
 	if !strings.HasSuffix(base, "-"+f.KeyHash[:8]+".otf") {
-		t.Errorf("filename does not keep keyhash8+ext: %q", base)
+		t.Errorf("member name does not keep keyhash8+ext: %q", base)
 	}
 	if !strings.HasPrefix(base, strings.Repeat("p", 87)) {
-		t.Errorf("filename should start with 87 psname bytes: %q", base)
+		t.Errorf("member name should start with 87 psname bytes: %q", base)
+	}
+	// the family component is capped too, because the whole family shares
+	// one archive whose name is derived from it: 88 family bytes + "-"
+	// + familyhash8 + ".7z" = exactly 100
+	archive := f.RepoFileName()
+	if len(archive) != 100 {
+		t.Errorf("archive name length = %d, want exactly 100", len(archive))
+	}
+	if !strings.HasSuffix(archive, "-"+HashKey(f.Family)[:8]+".7z") {
+		t.Errorf("archive name = %q, want it to keep familyhash8 + .7z", archive)
 	}
 }
 
-func TestManifestPathForKey(t *testing.T) {
-	keyHash := strings.Repeat("ab", 32)
-	if got := ManifestPathForKey(keyHash); got != "manifest/ab/"+keyHash+".json" {
-		t.Errorf("manifest path = %q", got)
+func TestFamilyManifestPath(t *testing.T) {
+	// manifest name is <sanitized family>-<familyhash8>.json
+	got := FamilyManifestPath("Cool Family")
+	if !strings.HasPrefix(got, "manifest/cool_family-") || !strings.HasSuffix(got, ".json") {
+		t.Errorf("manifest path = %q, want manifest/cool_family-<hash8>.json", got)
+	}
+	// the hash suffix separates two family names that sanitize alike, the
+	// same role keyhash8 played in the per-font manifest names
+	if FamilyManifestPath("Cool/Family") == FamilyManifestPath("Cool Family") {
+		t.Error("family names that sanitize alike must still get separate manifests")
+	}
+	// and it is the family name that is hashed, not the font key: two fonts
+	// of one family share a manifest
+	if FamilyManifestPath("Cool Family") == FamilyManifestPath("Cool Family Pro") {
+		t.Error("different families must get different manifests")
 	}
 }
 
