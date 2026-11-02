@@ -2,10 +2,49 @@
 package fsutil
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
+
+// HashAndSize returns the hex SHA-256 and byte size of a file. It streams,
+// so a family archive of any size is hashed without being read into memory.
+func HashAndSize(path string) (string, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, fmt.Errorf("open %s: %w", path, err)
+	}
+	sum := sha256.New()
+	size := int64(0)
+	buf := make([]byte, 1<<16)
+	for {
+		n, rerr := f.Read(buf)
+		if n > 0 {
+			// this toolchain's hash.Hash accumulates via Write (io.Writer),
+			// not Update
+			if _, err := sum.Write(buf[:n]); err != nil {
+				_ = f.Close()
+				return "", 0, fmt.Errorf("read %s: %w", path, err)
+			}
+			size += int64(n)
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				break
+			}
+			_ = f.Close()
+			return "", 0, fmt.Errorf("read %s: %w", path, rerr)
+		}
+	}
+	if err := f.Close(); err != nil {
+		return "", 0, fmt.Errorf("close %s: %w", path, err)
+	}
+	return hex.EncodeToString(sum.Sum(nil)), size, nil
+}
 
 // AtomicWrite writes data to path atomically: it writes a temporary file in
 // the same directory, fsyncs it, applies mode and renames it over path.
