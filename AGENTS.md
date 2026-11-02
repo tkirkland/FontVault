@@ -1,5 +1,62 @@
 # Project memory — session of 2026-11-01
 
+## Archive-per-family rework (later work, same date)
+
+Goal achieved: the repository no longer stores loose `.ttf`/`.otf` LFS files. One
+7z archive per font family + one manifest per family; push/pull/compare work on
+that layout. `go build ./...`, `go vet ./...`, `gofmt -l -e` and `go test -count=1
+./...` are all green; nothing committed.
+
+- **Layout landed:** archive `fonts/<family>/<family>-<familyhash8>.7z`, member
+  inside it `<psname>-<keyhash8>.<ext>`, manifest `manifest/<family>-<familyhash8>.json`.
+  The family-hash suffix on the **archive** name is load-bearing: two family names can
+  sanitize to the same component ("Cool/Family" vs "Cool Family") while their manifests
+  stayed separate, which would have shared one archive with two partial manifests.
+  Caps: family dir/manifest 100, archive-name family part 88, member psname part 87.
+- `internal/archive7z/` (new): `Tool{Exe,Log}`, `Resolve()` (PATH `7z`/`7za`/`7zr`,
+  then `%PROGRAMFILES%[ (x86)]\7-Zip\7z.exe`), `Available()`, `Add`, `Extract`, `List`.
+  Args `a -t7z -m0=lzma2 -mx=5 -bd -y <abs archive> <member>`. **`-mt=1` is
+  rejected by the machine's 7z (NanaZip 7.0/2610.2) with "System ERROR: The parameter
+  is incorrect"** — drop it, single-threaded is the default anyway. Callers must pass
+  absolute archive paths (this toolchain's `filepath.Abs` returns `(string, error)`).
+- `workdir.Manifest` is the per-font *entry* (+ `Member`); `workdir.FamilyManifest` is
+  the file (family, repo_path, archive_sha256/size, dates, `Fonts`). `Index.ByKey`
+  still one record per font; `Index.ByPath`/`FamilyFor` per family. The loader fills
+  `entry.RepoPath` from the family record. `PutEntry` returns the vector record —
+  `st.idx.ByKey` must be set to that, not the local copy.
+- `push.go`: `familyFor` (also refuses an archive present without a manifest, returns
+  `fresh`), `stageArchive` (fetch when the branch has one; **refetch when the on-disk
+  hash ≠ `ArchiveSHA256`**, which is what heals a rebase that added another run's
+  font; `fresh` removes a leftover file instead of adding to it), `storeFont` shared by
+  `pushAdd`/`replaceRepoFont`, `writeManifest(*FamilyManifest)`, `stagedArchivesForIndex`
+  drives the pre-commit LFS check (expected OID = the recorded archive hash).
+- `pull.go`: `pullMemberContent` → `fetchFamilyArchive` (cached per run in
+  `App.pullArchives`, initialized in the `&App{...}` literal — a nil map panics) →
+  `sevenz.Extract` → verify member sha → parse. Filename comes from `m.Member`.
+- `repocontent.go`: `repoFetch` (cat-file | lfs smudge) + `displayEntry`/`displayFont`
+  render `archive#member` in reports, prompts and dry-run lines.
+- Docs/spec amended per the user's confirmed five-point plan: `prompt.md` (deps, layout,
+  manifest JSON, content-hash/LFS-OID wording, workdir fetch rule, push/pull steps,
+  CI), `README.md` (requirements, layout, history trade-off), `ci.yml` + `release.yml`
+  install 7-Zip (apt `7z`/`7zz`/`p7zip-full`; `choco install 7zip`).
+- **Toolchain shapes found this pass (add to the Notes list):** `hash.Hash` accumulates
+  via `Write` (io.Writer), there is **no `Update`** and no `Digest`/`ToArray` — use
+  `sum.Write(buf)` + `hex.EncodeToString(sum.Sum(nil))`. Go here rejects `const` array
+  literals (use `var`), rejects spreading a `[]string` into `...string` alongside
+  positional args (put the subcommand inside the args builder), and `(a, b, now time.Time)`
+  really does give all three params that type — write each type out.
+- **Editor-clobber warning (this bit twice):** GoLand's unsaved buffers reverted
+  `push.go`, `integration_test.go`, `workdir_test.go` and `fonts_test.go` back to HEAD
+  mid-session, wiping work already on disk. `git status` / `git diff --stat` before
+  trusting that an earlier edit survived; if the user keeps a file open unsaved, ask
+  them to save/reload in the IDE before agent edits.
+- Test-side helpers now in `integration_test.go`: `archivePath(family)` (builds the
+  path through the product's own `Font.RepoPath` so the test cannot drift),
+  `checkArchiveBlobsArePointers` (asserts `.7z` pointers **and** no loose font file).
+  `TestPruneNotRunAfterFailedRun` seeds an orphan **archive** at `archivePath("Zeta")`.
+
+## Earlier work this same date (kept for reference)
+
 ## Project
 
 Same `fontvault` project as before (see session logs of 2026-10-31 and 2026-10-30 below, kept for reference).
