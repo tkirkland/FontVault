@@ -74,34 +74,63 @@ func SanitizeComponent(s string, maxLen int) string {
 
 const (
 	familyMaxLen = 100
-	// The filename component is "<psname>-<keyhash8>.<ext>" and must be at
+	// The archive member name is "<psname>-<keyhash8>.<ext>" and must be at
 	// most 100 characters: 100 - 4 (".ttf"/".otf") - 9 ("-"+keyhash8) = 87.
 	psNameMaxLen = 87
+	// The archive name is "<family>-<familyhash8>.7z" and must stay within
+	// 100 characters: 100 - 3 (".7z") - 9 ("-"+familyhash8) = 88.
+	archiveNameMaxLen = 88
 )
 
-// RepoPath returns the stable repository path for the font:
-// fonts/<family>/<psname>-<keyhash8>.<ext>, lowercased, with every
-// component sanitized and capped. The path depends only on the key and
-// metadata-derived names, never on the content hash.
+// RepoPath returns the repository path of the family archive holding this
+// font: fonts/<family>/<family>-<familyhash8>.7z, lowercased, with every
+// component sanitized and capped. Fonts are never stored as loose files: a
+// family with one font still gets an archive. The path depends only on the
+// family name, never on the content hash.
+//
+// note: the hash suffix is what the manifest name uses for the same reason:
+// two family names can sanitize to the same component ("Cool/Family" and
+// "Cool Family"), and without it they would silently share one archive
+// while their manifests, which are named the same way, stayed separate.
 func (f *Font) RepoPath() string {
-	family := strings.ToLower(SanitizeComponent(f.Family, familyMaxLen))
+	fam := familyComponent(f.Family)
+	return filepath.ToSlash(filepath.Join("fonts", fam, archiveName(f.Family)))
+}
+
+// archiveName returns "<sanitized family>-<familyhash8>.7z".
+func archiveName(family string) string {
+	return strings.ToLower(SanitizeComponent(family, archiveNameMaxLen)) + "-" + HashKey(family)[:8] + ".7z"
+}
+
+// MemberName returns the name this font is stored under inside its family
+// archive: <psname>-<keyhash8>.<ext>. The key hash keeps two keys whose names
+// sanitize to the same string apart, which is normal for the vendor-ID-only
+// differences patched fonts carry.
+func (f *Font) MemberName() string {
 	name := strings.ToLower(SanitizeComponent(f.PostScriptName, psNameMaxLen))
-	return filepath.ToSlash(filepath.Join("fonts", family,
-		name+"-"+f.KeyHash[:8]+"."+f.Ext))
+	return name + "-" + f.KeyHash[:8] + "." + f.Ext
 }
 
-// ManifestPath returns the manifest path for the font's key:
-// manifest/<keyhash[0:2]>/<keyhash>.json.
+// ManifestPath returns the manifest path for the font's family:
+// manifest/<family>-<familyhash8>.json.
 func (f *Font) ManifestPath() string {
-	return ManifestPathForKey(f.KeyHash)
+	return FamilyManifestPath(f.Family)
 }
 
-// ManifestPathForKey builds a manifest path from a key hash.
-func ManifestPathForKey(keyHash string) string {
-	return "manifest/" + keyHash[:2] + "/" + keyHash + ".json"
+// FamilyManifestPath builds the manifest path for a family name. The key-hash
+// suffix makes the name unique even when two family names sanitize alike.
+func FamilyManifestPath(family string) string {
+	short := strings.ToLower(SanitizeComponent(family, familyMaxLen))
+	return "manifest/" + short + "-" + HashKey(family)[:8] + ".json"
 }
 
-// RepoFileName returns the filename (last path element) of RepoPath.
+// RepoFileName returns the filename (last path element) of RepoPath, the
+// family archive name.
 func (f *Font) RepoFileName() string {
 	return filepath.Base(f.RepoPath())
+}
+
+// familyComponent returns the lowercased, sanitized family directory name.
+func familyComponent(family string) string {
+	return strings.ToLower(SanitizeComponent(family, familyMaxLen))
 }
