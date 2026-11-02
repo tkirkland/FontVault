@@ -12,15 +12,15 @@ import (
 	"fontvault/internal/lockfile"
 )
 
-// GitAttributesContent is the canonical .gitattributes routing .ttf and
-// .otf files through Git LFS.
-const GitAttributesContent = "*.ttf filter=lfs diff=lfs merge=lfs -text\n" +
-	"*.otf filter=lfs diff=lfs merge=lfs -text\n"
+// GitAttributesContent is the canonical .gitattributes routing family archives
+// (.7z) through Git LFS. Fonts are never stored as loose repository files.
+const GitAttributesContent = "*.7z filter=lfs diff=lfs merge=lfs -text\n"
 
-// GitAttributesComplete reports whether content routes both extensions
-// through LFS.
+// GitAttributesComplete reports whether content routes family archives through
+// LFS. A repository whose file still lists the per-font .ttf/.otf rules is
+// incomplete: push rewrites it in its own commit.
 func GitAttributesComplete(content string) bool {
-	return hasLFSRule(content, "*.ttf") && hasLFSRule(content, "*.otf")
+	return hasLFSRule(content, "*.7z")
 }
 
 // hasLFSRule reports whether one non-comment line for the pattern ext carries
