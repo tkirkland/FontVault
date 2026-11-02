@@ -576,7 +576,7 @@ func conflictEntry(local *fonts.Font, repo *workdir.Manifest, reason string) rep
 		OtherLabel:     "repo:",
 		OtherVersion:   repo.VersionString,
 		OtherShortHash: fonts.ShortHash(repo.SHA256),
-		OtherPath:      repo.RepoPath,
+		OtherPath:      displayEntry(repo),
 		Reason:         reason,
 	}
 }
