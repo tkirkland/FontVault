@@ -72,7 +72,9 @@ func (a *App) runCompare(st *runState) (int, *report.Report) {
 	return finalCode(len(errors_), autoSkips), rep
 }
 
-// repoEntry builds a report entry from a repo manifest.
+// repoEntry builds a report entry from a repo manifest. The path it shows
+// names the family archive and the member inside it, because the archive
+// path alone does not identify one font.
 func repoEntry(m *workdir.Manifest) report.Entry {
 	return report.Entry{
 		Family:    m.Family,
@@ -80,7 +82,7 @@ func repoEntry(m *workdir.Manifest) report.Entry {
 		Key:       m.Key,
 		Version:   m.VersionString,
 		ShortHash: fonts.ShortHash(m.SHA256),
-		Path:      m.RepoPath,
+		Path:      displayEntry(m),
 	}
 }
 
@@ -140,5 +142,5 @@ func fontOrder(f *fonts.Font) orderKey {
 // manifestOrder maps a repo manifest to its sort tuple (the repo path
 // stands in for a local path).
 func manifestOrder(m *workdir.Manifest) orderKey {
-	return orderKey{Family: m.Family, Subfamily: m.Subfamily, Key: m.Key, Path: m.RepoPath}
+	return orderKey{Family: m.Family, Subfamily: m.Subfamily, Key: m.Key, Path: displayEntry(m)}
 }
