@@ -143,7 +143,7 @@ func (a *App) pullConflict(local *fonts.Font, m *workdir.Manifest, classifier ex
 		"Conflict: %s %s (key %s)\n  local: version %s | revision %s | %d bytes | sha %s | %s\n  repo:  version %s | revision %s | %d bytes | sha %s | %s\n",
 		local.Family, local.Subfamily, local.Key,
 		orDash(local.VersionString), orDash(local.FontRevision), local.Size, fonts.ShortHash(local.SHA256), local.Path,
-		orDash(m.VersionString), orDash(m.FontRevision), m.Size, fonts.ShortHash(m.SHA256), m.RepoPath)
+		orDash(m.VersionString), orDash(m.FontRevision), m.Size, fonts.ShortHash(m.SHA256), displayEntry(m))
 	answer, err := a.prompter.choice("[l]ocal replaced by repo copy / [s]kip: ", map[string]string{"l": "l", "s": "s"})
 	// note: an unreadable answer is a decline, never a guess: the repo copy is
 	// only installed over the local file when the user said so.
@@ -173,10 +173,10 @@ func (a *App) printPullDryRun(keys []string, targets map[string]*pullTarget) {
 	for _, k := range keys {
 		t := targets[k]
 		if t.replace {
-			_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace local font with %s\n", t.manifest.RepoPath)
+			_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace local font with %s\n", displayEntry(t.manifest))
 			continue
 		}
-		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would install %s\n", t.manifest.RepoPath)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would install %s\n", displayEntry(t.manifest))
 	}
 }
 
@@ -194,7 +194,7 @@ func (a *App) applyPullTargets(ctx context.Context, st *runState, installer inst
 		t := targets[k]
 		err := a.pullOne(ctx, st, installer, t, installed, replaced, skipped, errs)
 		if err != nil {
-			*errs = append(*errs, report.Entry{Path: t.manifest.RepoPath, Reason: err.Error()})
+			*errs = append(*errs, report.Entry{Path: displayEntry(t.manifest), Reason: err.Error()})
 		}
 	}
 }
@@ -216,15 +216,15 @@ func (a *App) finishPull(rep *report.Report, st *runState, installed, replaced, 
 func (a *App) pullOne(ctx context.Context, st *runState, installer install.Installer, t *pullTarget, installed, replaced, skipped *[]report.Entry, errs *[]report.Entry) error {
 	job := a.newPullJob(t, installed, replaced, skipped, errs)
 
-	// Fetch content without checkout: cat-file the blob and let LFS smudge
-	// it, then verify hash and parseability.
-	blob, err := a.pullBlob(ctx, st, job.t.manifest)
+	// Fetch content without checkout: the family archive, then the member
+	// inside it, each verified against the manifest before anything is written.
+	content, err := a.pullMemberContent(ctx, st, job.t.manifest)
 	if err != nil {
 		return err
 	}
 	// Write the temp file inside the installation dir so the final rename is
 	// atomic.
-	tmpName, err := a.writePullTemp(blob)
+	tmpName, err := a.writePullTemp(content)
 	if err != nil {
 		return err
 	}
@@ -250,11 +250,12 @@ type pullJob struct {
 }
 
 // newPullJob builds that bundle.
-// note: meta.Filename and target come from one filepath.Base of the repo path,
-// so the path a skipped entry reports is the path the installer writes.
+// note: meta.Filename and target come from the manifest's member name, the
+// name the font is stored under inside its family archive, so the path a
+// skipped entry reports is the path the installer writes.
 func (a *App) newPullJob(t *pullTarget, installed, replaced, skipped, errs *[]report.Entry) pullJob {
 	m := t.manifest
-	filename := filepath.Base(m.RepoPath)
+	filename := m.Member
 	return pullJob{
 		t:        t,
 		meta:     install.Meta{Filename: filename, FullName: m.FullName, Ext: m.Ext},
@@ -265,25 +266,75 @@ func (a *App) newPullJob(t *pullTarget, installed, replaced, skipped, errs *[]re
 	}
 }
 
-// pullBlob fetches one repo font's content without a checkout: cat-file the
-// blob and let LFS smudge it. The bytes must match the manifest hash and
-// parse as a font before anything is written.
-func (a *App) pullBlob(ctx context.Context, st *runState, m *workdir.Manifest) ([]byte, error) {
-	blob, err := a.git.Pipe(ctx, st.workdir.Dir, nil,
-		[]string{"cat-file", "blob", "HEAD:" + m.RepoPath},
-		[]string{"lfs", "smudge", m.RepoPath})
+// pullMemberContent returns the bytes of one font: the family archive is
+// fetched (without a checkout) and verified, then the member is extracted
+// from it and verified against the manifest's own hash before anything is
+// written.
+func (a *App) pullMemberContent(ctx context.Context, st *runState, m *workdir.Manifest) ([]byte, error) {
+	arch, err := a.fetchFamilyArchive(ctx, st, m.RepoPath)
 	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", m.RepoPath, err)
+		return nil, err
 	}
-	sum := sha256.Sum256(blob)
+	if want := a.recordedArchiveSHA(st, m.RepoPath); want != "" && arch.sha256 != want {
+		return nil, fmt.Errorf("verify %s: archive hash mismatch (got %s, manifest has %s)",
+			m.RepoPath, arch.sha256, want)
+	}
+	member, err := a.sevenz.Extract(ctx, arch.file, m.Member)
+	if err != nil {
+		return nil, fmt.Errorf("extract %s from %s: %w", m.Member, m.RepoPath, err)
+	}
+	sum := sha256.Sum256(member)
 	got := hex.EncodeToString(sum[:])
 	if got != m.SHA256 {
-		return nil, fmt.Errorf("verify %s: content hash mismatch (got %s, manifest has %s)", m.RepoPath, got, m.SHA256)
+		return nil, fmt.Errorf("verify %s#%s: content hash mismatch (got %s, manifest has %s)",
+			m.RepoPath, m.Member, got, m.SHA256)
 	}
-	if _, err := fonts.Parse(blob); err != nil {
-		return nil, fmt.Errorf("verify %s: downloaded font does not parse: %w", m.RepoPath, err)
+	if _, err := fonts.Parse(member); err != nil {
+		return nil, fmt.Errorf("verify %s#%s: downloaded font does not parse: %w",
+			m.RepoPath, m.Member, err)
 	}
-	return blob, nil
+	return member, nil
+}
+
+// pullArchives holds the family archives fetched during this run, keyed by
+// repository path, so several fonts of one family download the archive once.
+type pullArchive struct {
+	file   string // temp file holding the archive bytes
+	sha256 string // hash of those bytes, computed after the fetch
+}
+
+// fetchFamilyArchive returns the run's cached copy of one family archive,
+// downloading it into a temp file on first use.
+func (a *App) fetchFamilyArchive(ctx context.Context, st *runState, repoPath string) (pullArchive, error) {
+	if hit, ok := a.pullArchives[repoPath]; ok {
+		return hit, nil
+	}
+	blob, err := a.repoFetch(ctx, st, repoPath)
+	if err != nil {
+		return pullArchive{}, err
+	}
+	dir, err := a.newTempDir("archive")
+	if err != nil {
+		return pullArchive{}, err
+	}
+	file := filepath.Join(dir, filepath.Base(repoPath))
+	if err := os.WriteFile(file, blob, 0600); err != nil {
+		return pullArchive{}, fmt.Errorf("write %s: %w", file, err)
+	}
+	sum := sha256.Sum256(blob)
+	arch := pullArchive{file: file, sha256: hex.EncodeToString(sum[:])}
+	a.pullArchives[repoPath] = arch
+	return arch, nil
+}
+
+// recordedArchiveSHA returns the archive hash the manifest says the archive
+// has ("" when the manifest does not record one, in which case the fetch
+// cannot be checked against anything).
+func (a *App) recordedArchiveSHA(st *runState, repoPath string) string {
+	if fam := st.idx.FamilyFor(repoPath); fam != nil {
+		return fam.ArchiveSHA256
+	}
+	return ""
 }
 
 // writePullTemp writes that content into a temp file inside the installation dir,
@@ -415,7 +466,7 @@ func conflictEntryForPath(target string, m *workdir.Manifest, reason string) rep
 		OtherLabel:     "repo:",
 		OtherVersion:   m.VersionString,
 		OtherShortHash: fonts.ShortHash(m.SHA256),
-		OtherPath:      m.RepoPath,
+		OtherPath:      displayEntry(m),
 		Reason:         reason,
 	}
 }
