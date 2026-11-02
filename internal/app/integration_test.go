@@ -114,8 +114,8 @@ func TestFirstPushToEmptyRepo(t *testing.T) {
 	}
 
 	checkInitThenFontsCommits(t, env, "Add 2 fonts")
-	checkLFSAttributes(t, env, "*.ttf", "*.otf")
-	checkFontBlobsArePointers(t, env, 2)
+	checkLFSAttributes(t, env, "*.7z")
+	checkArchiveBlobsArePointers(t, env, 2)
 	checkManifestFileCount(t, env, 2)
 	checkWorktreeHasNoFonts(t, env)
 	checkPushReportWritten(t, env)
@@ -146,15 +146,23 @@ func checkLFSAttributes(t *testing.T, env *testEnv, extensions ...string) {
 	}
 }
 
-// checkFontBlobsArePointers asserts exactly want font blobs are in the tree
-// and every one of them is an LFS pointer.
-func checkFontBlobsArePointers(t *testing.T, env *testEnv, want int) {
+// checkArchiveBlobsArePointers asserts exactly want family archives are in the
+// tree, every one of them an LFS pointer, and that no loose font file was
+// written: fonts live inside the archive, never beside it.
+func checkArchiveBlobsArePointers(t *testing.T, env *testEnv, want int) {
 	t.Helper()
 	head := env.head()
 	tree := env.bare("ls-tree", "-r", "--name-only", "refs/heads/main", "--", "fonts")
 	seen := 0
 	for p := range strings.SplitSeq(tree, "\n") {
-		if !strings.HasSuffix(p, ".ttf") && !strings.HasSuffix(p, ".otf") {
+		if p == "" {
+			continue
+		}
+		if strings.HasSuffix(p, ".ttf") || strings.HasSuffix(p, ".otf") {
+			t.Errorf("loose font file in the tree: %s", p)
+			continue
+		}
+		if !strings.HasSuffix(p, ".7z") {
 			continue
 		}
 		seen++
@@ -164,8 +172,15 @@ func checkFontBlobsArePointers(t *testing.T, env *testEnv, want int) {
 		}
 	}
 	if seen != want {
-		t.Errorf("font blobs in tree = %d, want %d", seen, want)
+		t.Errorf("family archives in tree = %d, want %d", seen, want)
 	}
+}
+
+// archivePath returns the repository path of a family's archive, using the
+// product's own derivation so the test cannot drift from it.
+func archivePath(family string) string {
+	f := fonts.Font{Family: family}
+	return f.RepoPath()
 }
 
 // checkManifestFileCount asserts the manifest directory holds want files.
@@ -227,7 +242,7 @@ func TestPushConflictUnderYesSkips(t *testing.T) {
 		t.Fatalf("first push: %d (%s)", res.code, res.stderr)
 	}
 	oldSHA := env.head()
-	oldBlob := env.show(oldSHA, "fonts/alpha/alpha-regular-"+fonts.HashKey("Alpha-Regular|ABCD")[:8]+".ttf")
+	oldBlob := env.show(oldSHA, archivePath("Alpha"))
 
 	// Same key, different content.
 	if err := os.Remove(filepath.Join(env.fontDir, "alpha.ttf")); err != nil {
@@ -242,7 +257,7 @@ func TestPushConflictUnderYesSkips(t *testing.T) {
 	if env.head() != oldSHA {
 		t.Error("skipped conflict must not create a commit")
 	}
-	if env.show(env.head(), "fonts/alpha/alpha-regular-"+fonts.HashKey("Alpha-Regular|ABCD")[:8]+".ttf") != oldBlob {
+	if env.show(env.head(), archivePath("Alpha")) != oldBlob {
 		t.Error("repo copy changed despite skip")
 	}
 	text := env.reportText()
@@ -288,7 +303,7 @@ func TestPushReplaceRepo(t *testing.T) {
 		t.Fatalf("first push: %d (%s)", res.code, res.stderr)
 	}
 	oldSHA := env.head()
-	repoPath := "fonts/alpha/alpha-regular-" + fonts.HashKey("Alpha-Regular|ABCD")[:8] + ".ttf"
+	repoPath := archivePath("Alpha")
 
 	if err := os.Remove(filepath.Join(env.fontDir, "alpha.ttf")); err != nil {
 		t.Fatal(err)
@@ -690,10 +705,12 @@ func TestPruneNotRunAfterFailedRun(t *testing.T) {
 		Subfamily:      "Regular",
 		Vendor:         "ZZZZ",
 	}
-	orphanPath := "fonts/zeta/zeta-regular-" + fonts.HashKey("Zeta-Regular|ZZZZ")[:8] + ".ttf"
+	orphanPath := archivePath("Zeta")
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(seed, orphanPath)), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// the bytes do not matter: the run refuses before reading the archive,
+	// because no manifest describes the family it belongs to
 	if err := os.WriteFile(filepath.Join(seed, orphanPath), testfont.Build(t, orphanSpec), 0o644); err != nil {
 		t.Fatal(err)
 	}
