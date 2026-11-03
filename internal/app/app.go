@@ -160,13 +160,13 @@ func (a *App) SetRemoteURL(url string) { a.remoteURL = url }
 // SetAppDir overrides the directory holding cfg and reports (tests only).
 func (a *App) SetAppDir(dir string) { a.appDirOverride = dir }
 
-func (a *App) repoName() string { return "fontvault" }
+func (a *App) repoName() string { return "FontVault_fonts" }
 
 func (a *App) remoteFor(login string) string {
 	if a.remoteURL != "" {
 		return a.remoteURL
 	}
-	return fmt.Sprintf("https://github.com/%s/fontvault.git", login)
+	return fmt.Sprintf("https://github.com/%s/%s.git", login, a.repoName())
 }
 
 // usageFail prints a usage error (exit 5).
@@ -617,7 +617,7 @@ func (a *App) confirmSettings() int {
 	}
 	_, _ = fmt.Fprintf(a.Stdout, "fontvault %s\n", a.Version)
 	_, _ = fmt.Fprintf(a.Stdout, "mode: %s\n", mode)
-	_, _ = fmt.Fprintf(a.Stdout, "github: %s/fontvault\n", a.login)
+	_, _ = fmt.Fprintf(a.Stdout, "github: %s/%s\n", a.login, a.repoName())
 	_, _ = fmt.Fprintf(a.Stdout, "branch: %s\n", a.branch)
 	_, _ = fmt.Fprintf(a.Stdout, "workdir: %s\n", a.workdir)
 	_, _ = fmt.Fprintf(a.Stdout, "source: %s\n", a.Opts.Source)
