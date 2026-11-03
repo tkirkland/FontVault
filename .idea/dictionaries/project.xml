@@ -2,20 +2,31 @@
   <dictionary name="project">
     <words>
       <w>Atoi</w>
+      <w>PROGRAMFILES</w>
       <w>WINDIR</w>
+      <w>aaaaaaaa</w>
+      <w>appdir</w>
       <w>askpass</w>
+      <w>bbbbbbbb</w>
+      <w>cccccccc</w>
       <w>cmap</w>
+      <w>dddddddd</w>
+      <w>eeeeeeee</w>
       <w>esum</w>
       <w>familyhash</w>
+      <w>ffffffff</w>
       <w>fontvault</w>
       <w>fontvault's</w>
       <w>fsutil</w>
       <w>fsyncs</w>
+      <w>gitconfig</w>
       <w>glyf</w>
       <w>hhea</w>
       <w>hmtx</w>
       <w>housekeep</w>
       <w>hwnd</w>
+      <w>installdir</w>
+      <w>itoa</w>
       <w>keyhash</w>
       <w>lerr</w>
       <w>loca</w>
@@ -29,8 +40,12 @@
       <w>psname</w>
       <w>rerr</w>
       <w>serr</w>
+      <w>sevenz</w>
       <w>sfnt</w>
+      <w>sysfonts</w>
+      <w>sysname</w>
       <w>testfont</w>
+      <w>userfonts</w>
     </words>
   </dictionary>
 </component>
