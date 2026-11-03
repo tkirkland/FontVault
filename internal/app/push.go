@@ -136,7 +136,7 @@ func (a *App) commitAndPushFonts(ctx context.Context, st *runState, sync bool, r
 	if err := apply(); err != nil {
 		return err
 	}
-	if err := a.verifyStagedFonts(ctx, st, res); err != nil {
+	if err := a.verifyStagedFonts(ctx, st); err != nil {
 		return err
 	}
 	if err := a.commitIfStaged(ctx, st, res); err != nil {
@@ -532,12 +532,12 @@ func (a *App) conflictPrompt(sync bool) string {
 // stagedArchivesForIndex maps every staged family archive to the archive
 // hash the (updated) index records for it.
 //
-// note: the expectation is read from st.idx, not collected from res.added
-// and res.replaced, so a rebase retry that staged an archive in an earlier
+// note: the expectation is read from st.idx, not collected from the run's
+// added/replaced lists, so a rebase retry that staged an archive in an earlier
 // pass still verifies. The hash recorded at write time is what the staged
 // blob must be an LFS pointer for: the OID git computed for the pointer is
 // the hash of the archive content, not of the manifest entry.
-func (a *App) stagedArchivesForIndex(ctx context.Context, st *runState, res *pushResult) map[string]string {
+func (a *App) stagedArchivesForIndex(ctx context.Context, st *runState) map[string]string {
 	paths, err := a.git.StagedFontPaths(ctx, st.workdir.Dir)
 	expected := map[string]string{}
 	if err != nil {
@@ -606,9 +606,9 @@ func (a *App) pathExists(ctx context.Context, st *runState, repoPath string) (bo
 	return a.git.PathInBranch(ctx, st.workdir.Dir, st.workdir.BaseSHA, repoPath)
 }
 
-// verifyStagedFonts confirms every staged font is an LFS pointer with the
-// expected oid. Any raw blob aborts the run before committing.
-func (a *App) verifyStagedFonts(ctx context.Context, st *runState, res *pushResult) error {
+// verifyStagedFonts confirms every staged family archive is an LFS pointer
+// with the expected oid. Any raw blob aborts the run before committing.
+func (a *App) verifyStagedFonts(ctx context.Context, st *runState) error {
 	if a.Opts.DryRun {
 		return nil
 	}
@@ -619,7 +619,7 @@ func (a *App) verifyStagedFonts(ctx context.Context, st *runState, res *pushResu
 	if len(staged) == 0 {
 		return nil
 	}
-	expected := a.stagedArchivesForIndex(ctx, st, res)
+	expected := a.stagedArchivesForIndex(ctx, st)
 	if _, err := a.git.LFSStatus(ctx, st.workdir.Dir); err != nil {
 		a.Log.Warn("git lfs status --porcelain", "error", err)
 	}
@@ -738,7 +738,7 @@ func (a *App) pushWithRetries(ctx context.Context, st *runState, res *pushResult
 	return false, errors.New("push exhausted retries")
 }
 
-// pushAttempt does one push attempt: LFS objects, then the ref. On success
+// pushAttempt does one push attempt: LFS objects, then the ref. On success,
 // it verifies the pushed head and returns true; on a recoverable non-fast-forward
 // rejection it rebases and restages and returns false so the caller retries.
 // Any other error aborts the run.
@@ -799,7 +799,7 @@ func (a *App) reapplyAfterRebase(ctx context.Context, st *runState, res *pushRes
 	if err := apply(); err != nil {
 		return err
 	}
-	if err := a.verifyStagedFonts(ctx, st, res); err != nil {
+	if err := a.verifyStagedFonts(ctx, st); err != nil {
 		return err
 	}
 	if err := a.commitIfStaged(ctx, st, res); err != nil {
