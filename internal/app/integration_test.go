@@ -347,7 +347,7 @@ func TestNonFastForwardResolvedByRetry(t *testing.T) {
 		t.Fatalf("first push: %d (%s)", res.code, res.stderr)
 	}
 
-	// An external clone with one unpushed commit.
+	// An external clone with one un-pushed commit.
 	ext := filepath.Join(env.root, "external")
 	git(t, env.root, "clone", filepath.ToSlash(env.barePath), ext)
 	git(t, ext, "checkout", "main")
@@ -480,7 +480,7 @@ func TestPullReplaceLocal(t *testing.T) {
 	if !strings.Contains(res.stdout, "[l]ocal replaced by repo copy / [s]kip") {
 		t.Errorf("prompt missing: %q", res.stdout)
 	}
-	// The old local file is gone, and the new copy sits in the install dir
+	// The old local file is gone, and the new copy sits in the installation dir
 	// with the original repo font bytes.
 	if _, err := os.Stat(localPath); !os.IsNotExist(err) {
 		t.Error("old local file must be deleted after replace")
