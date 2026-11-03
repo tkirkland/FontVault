@@ -29,7 +29,7 @@ func TestRepoMissingCreateFlowYes(t *testing.T) {
 	if gh.createCalls != 1 {
 		t.Errorf("CreateRepo calls = %d, want 1", gh.createCalls)
 	}
-	if !strings.Contains(res.stdout, "Created repository alice/fontvault.") {
+	if !strings.Contains(res.stdout, "Created repository alice/FontVault_fonts.") {
 		t.Errorf("stdout missing creation message: %q", res.stdout)
 	}
 	// The push went through to the (local bare) remote.
