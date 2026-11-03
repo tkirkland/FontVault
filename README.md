@@ -44,7 +44,7 @@ must be writable; fontvault verifies this on every run.
 
 ## Usage
 
-```
+```text
 fontvault -s <system|user> [-d <push|pull|sync> | -c] [flags]
 ```
 
@@ -102,7 +102,7 @@ If the repository does not exist, push/pull/sync ask
 
 Repository layout:
 
-```
+```text
 fonts/<family>/<family>-<familyhash8>.7z
 manifest/<family>-<familyhash8>.json
 .gitattributes
