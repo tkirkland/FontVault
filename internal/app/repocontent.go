@@ -3,7 +3,7 @@ package app
 // Package repo content reads the repository's own files without a checkout.
 //
 // The workdir is sparse: only manifest/ is in the working tree, so a family
-// archive under fonts/ has to be fetched (git cat-file piped through git lfs
+// archive under fonts/ has to be fetched (git cat-file piped through git-lfs
 // smudge) before it can be read or edited.
 
 import (
