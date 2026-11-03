@@ -33,8 +33,8 @@ func TestRedaction(t *testing.T) {
 		t.Errorf("redaction missing: %q", out)
 	}
 	// Base64 form must be redacted too.
-	creds := "eC1hY2Nlc3MtdG9rZW46c3VwZXJzZWNyZXQ="
-	if !strings.Contains(r.redact("header "+creds), "<redacted>") {
+	credentials := "eC1hY2Nlc3MtdG9rZW46c3VwZXJzZWNyZXQ="
+	if !strings.Contains(r.redact("header "+credentials), "<redacted>") {
 		t.Error("base64 form not redacted")
 	}
 }
