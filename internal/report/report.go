@@ -82,7 +82,7 @@ type Header struct {
 	OS        string
 	Source    string
 	FontDirs  []string
-	Repo      string // "<login>/fontvault"
+	Repo      string // "<login>/<repo>"
 	Branch    string
 	BaseSHA   string
 	// NewSHA is printed for push/sync. Empty means "(no new commit)".
