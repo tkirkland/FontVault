@@ -30,7 +30,7 @@ type ExclusionFile struct {
 }
 
 // ParseExclusionFile reads one entry per line. '#' starts a comment.
-// An entry is either a SHA-256 hash (64 hex characters) or a case-insensitive
+// An entry is either an SHA-256 hash (64 hex characters) or a case-insensitive
 // family name.
 func ParseExclusionFile(r io.Reader) (*ExclusionFile, error) {
 	xf := &ExclusionFile{Hashes: map[string]bool{}, Families: map[string]bool{}}
