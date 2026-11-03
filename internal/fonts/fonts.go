@@ -90,7 +90,7 @@ const (
 //
 // note: the hash suffix is what the manifest name uses for the same reason:
 // two family names can sanitize to the same component ("Cool/Family" and
-// "Cool Family"), and without it they would silently share one archive
+// "Cool Family"), and without it, they would silently share one archive
 // while their manifests, which are named the same way, stayed separate.
 func (f *Font) RepoPath() string {
 	fam := familyComponent(f.Family)
