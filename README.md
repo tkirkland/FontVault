@@ -2,7 +2,7 @@
 
 fontvault is a cross-platform CLI font archiver. It keeps TrueType (`.ttf`)
 and OpenType (`.otf`) fonts installed on the local machine in sync with a
-GitHub repository named `fontvault` (owned by the authenticated account)
+GitHub repository named `FontVault_fonts` (owned by the authenticated account)
 that stores the fonts through Git LFS.
 
 Only TrueType (`.ttf`) and OpenType (`.otf`) fonts are processed. Other font
@@ -93,11 +93,11 @@ fontvault -s user -d push -n
 ## Repository
 
 - **Owner:** the authenticated account (resolved with `GET /user`).
-- **Name:** always `fontvault`. It is not configurable.
-- **Remote:** `https://github.com/<login>/fontvault.git`.
+- **Name:** always `FontVault_fonts`. It is not configurable.
+- **Remote:** `https://github.com/<login>/FontVault_fonts.git`.
 
 If the repository does not exist, push/pull/sync ask
-`Repository <login>/fontvault does not exist. Create it as public? [y/N]`
+`Repository <login>/FontVault_fonts does not exist. Create it as public? [y/N]`
 (`-y` answers yes). Compare mode and `-n` never create it.
 
 Repository layout:
@@ -241,7 +241,7 @@ or 6) print to the console only. `-n` writes no report.
   24-hour clock). The same filename is used for every mode and is
   overwritten within the same minute. Writes are atomic.
 - **Header:** local timestamp, fontvault version, mode, OS and version,
-  source and resolved dirs, `<login>/fontvault`, branch, and the commit SHA
+  source and resolved dirs, `<login>/FontVault_fonts`, branch, and the commit SHA
   compared against (plus the new commit SHA for push/sync).
 - **Summary:** one count line per section.
 - **Sections** (as applicable to the mode): Local only, Repo only,
