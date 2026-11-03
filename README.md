@@ -23,6 +23,10 @@ and are never read beyond the directory listing.
 
 - Go (to build from source)
 - `git` and `git-lfs` on PATH (fontvault shells out to them; it does not use go-git)
+- `7z` (7-Zip) on PATH (fontvault shells out to it as well: each font family is
+  stored as one 7z archive, and the 7z container has no Go implementation). A
+  missing one fails in preflight with an instruction to install 7-Zip. On
+  Windows the default install directory `%PROGRAMFILES%\7-Zip` is also searched.
 - A GitHub account with a token (see below)
 - `fc-cache` is optional on Linux (a missing one warns but does not fail)
 
@@ -99,15 +103,29 @@ If the repository does not exist, push/pull/sync ask
 Repository layout:
 
 ```
-fonts/<family>/<psname>-<keyhash8>.<ext>
-manifest/<keyhash[0:2]>/<keyhash>.json
+fonts/<family>/<family>-<familyhash8>.7z
+manifest/<family>-<familyhash8>.json
 .gitattributes
 ```
 
-`keyhash` is the SHA-256 of the font key (PostScript name + `|` + vendor ID);
-the path is stable per key and does not change when the content changes.
-The `.gitattributes` file routes `*.ttf`/`*.otf` through LFS and is fixed in
-its own commit before any font commit (push only).
+Every font family is **one 7z archive**, even a family with a single font; fonts
+are never stored in the repository as loose files. Inside the archive each font
+is stored as `<psname>-<keyhash8>.<ext>`.
+
+`keyhash` is the SHA-256 of the font key (PostScript name + `|` + vendor ID) and
+`familyhash` is the SHA-256 of the family string; the 8-character prefixes keep
+names that sanitize alike apart. The paths are stable per key and per family and
+do not change when the content changes.
+
+The manifest holds one record for the family (its archive path, the archive's
+SHA-256 and size, and its dates) plus one entry per font inside the archive (each with its own `sha256`, `size`, `ext`
+and member name). The `.gitattributes`
+file routes `*.7z` through LFS and is fixed in its own commit before any font
+commit (push only).
+
+Replacing one font rewrites the family's whole archive, so a new LFS object for
+that family enters git history (the previous one remains there), and every
+font of the family is re-uploaded at that point.
 
 ## Token sources and required permissions
 
@@ -193,7 +211,9 @@ OS-default fonts are never modified, replaced or removed by any mode.
 - **Key:** PostScript name (name ID 6) + `|` + OS/2 `achVendID` (spaces and
   NULs trimmed; may be empty). Name ID 4 is the fallback when ID 6 is
   absent; without either, the font is invalid. Key comparison is exact.
-- **Content hash:** SHA-256 of the file bytes (also the LFS OID).
+- **Content hash:** SHA-256 of the font's own bytes, recorded per font in its
+  family manifest. The LFS object is the family archive, so its OID is the
+  archive's hash, not the font's.
 - **Same key, same hash:** identical. **Same key, different hash:** a
   conflict. **Key on one side only:** missing on the other side.
 - Two local files with the same key and different hashes are a local
@@ -264,7 +284,7 @@ or 6) print to the console only. `-n` writes no report.
 ## Development
 
 ```console
-go test ./...   # unit + integration tests (integration needs git and git-lfs)
+go test ./...   # unit + integration tests (integration needs git, git-lfs and 7z)
 ```
 
 The CI runs on `ubuntu-latest` and `windows-latest`; releases are built for
