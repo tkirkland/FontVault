@@ -94,11 +94,11 @@ func git(t *testing.T, dir string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
-	var out, errb bytes.Buffer
+	var out, errBuffer bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &errb
+	cmd.Stderr = &errBuffer
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("git %s: %v\nstderr: %s", strings.Join(args, " "), err, errb.String())
+		t.Fatalf("git %s: %v\nstderr: %s", strings.Join(args, " "), err, errBuffer.String())
 	}
 	return strings.TrimSpace(out.String())
 }
@@ -116,8 +116,8 @@ func (e *testEnv) bareRefExists(ref string) bool {
 	cmd := exec.Command("git", "--git-dir="+e.barePath, "rev-parse", "--verify", ref)
 	cmd.Dir = e.root
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
-	var errb bytes.Buffer
-	cmd.Stderr = &errb
+	var errBuffer bytes.Buffer
+	cmd.Stderr = &errBuffer
 	err := cmd.Run()
 	return err == nil
 }
@@ -321,8 +321,8 @@ func (e *testEnv) runApp(t *testing.T, args []string, stdin string, gh *fakeGitH
 	if err != nil {
 		t.Fatalf("parse %v: %v", args, err)
 	}
-	var out, errb bytes.Buffer
-	a := New(opts, "test-version", strings.NewReader(stdin), &out, &errb)
+	var out, errBuffer bytes.Buffer
+	a := New(opts, "test-version", strings.NewReader(stdin), &out, &errBuffer)
 	a.TTY = func() bool { return true }
 	a.SetRemoteURL(filepath.ToSlash(e.barePath))
 	a.SetAppDir(e.appDir)
@@ -332,7 +332,7 @@ func (e *testEnv) runApp(t *testing.T, args []string, stdin string, gh *fakeGitH
 	a.Env = func(string) (string, bool) { return "", false }
 	a.Clock = func() time.Time { return e.clock }
 	code := a.Run(context.Background())
-	return runResult{code: code, stdout: out.String(), stderr: errb.String()}
+	return runResult{code: code, stdout: out.String(), stderr: errBuffer.String()}
 }
 
 func (e *testEnv) newPlat(t *testing.T) *fakePlatform {
