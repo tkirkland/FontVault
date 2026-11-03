@@ -3,8 +3,10 @@
     <words>
       <w>Atoi</w>
       <w>WINDIR</w>
+      <w>askpass</w>
       <w>cmap</w>
       <w>esum</w>
+      <w>familyhash</w>
       <w>fontvault</w>
       <w>fontvault's</w>
       <w>fsutil</w>
@@ -23,6 +25,7 @@
       <w>octocat</w>
       <w>pathspec</w>
       <w>perr</w>
+      <w>pflag</w>
       <w>psname</w>
       <w>rerr</w>
       <w>serr</w>
