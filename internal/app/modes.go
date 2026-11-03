@@ -590,7 +590,7 @@ func (a *App) baseReport(mode string) *report.Report {
 		OS:        a.Platform.OSInfo(),
 		Source:    a.Opts.Source,
 		FontDirs:  append([]string{}, a.fontSources.Dirs...),
-		Repo:      a.login + "/fontvault",
+		Repo:      a.login + "/" + a.repoName(),
 		Branch:    a.branch,
 	}}
 }
