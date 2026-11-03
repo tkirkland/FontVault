@@ -239,53 +239,172 @@ func (a *App) applyPushFonts(ctx context.Context, st *runState, sync bool, res *
 	return nil
 }
 
-// pushAdd writes a new font and its manifest.
+// pushAdd stores a font the repository does not have yet.
 func (a *App) pushAdd(ctx context.Context, st *runState, f *fonts.Font, res *pushResult) error {
-	repoPath := f.RepoPath()
-	manifestPath := f.ManifestPath()
-
 	// Invariant: the repo path must not exist for a key that is not in the
-	// index.
-	exists, err := a.pathExists(ctx, st, repoPath)
-	if err != nil {
-		return fmt.Errorf("check repo path %s: %w", repoPath, err)
-	}
-	if exists {
-		return fmt.Errorf("invariant violation: repo path %s exists but key %q has no manifest; refusing to overwrite", repoPath, f.Key)
-	}
-
+	// index. familyFor checks it while resolving the family manifest.
 	if a.Opts.DryRun {
-		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would add %s -> %s\n", f.Path, repoPath)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would add %s -> %s\n", f.Path, displayFont(f))
 		if !res.addedKeys[f.Key] {
 			res.addedKeys[f.Key] = true
 			res.added = append(res.added, f)
 		}
 		return nil
 	}
-	content, err := os.ReadFile(f.Path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", f.Path, err)
-	}
-	full := filepath.Join(st.workdir.Dir, filepath.FromSlash(repoPath))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return fmt.Errorf("create repo dir for %s: %w", repoPath, err)
-	}
-	if err := fsutil.AtomicWrite(full, content, 0o644); err != nil {
-		return fmt.Errorf("write repo file %s: %w", repoPath, err)
-	}
-	manifest := manifestForFont(f, repoPath)
-	workdir.NewFromFont(manifest, a.Clock())
-	if err := a.writeManifest(st, manifestPath, manifest); err != nil {
+	if err := a.storeFont(ctx, st, f, nil); err != nil {
 		return err
-	}
-	if _, err := a.git.AddSparse(ctx, st.workdir.Dir, filepath.FromSlash(repoPath), filepath.FromSlash(manifestPath)); err != nil {
-		return fmt.Errorf("stage %s and %s: %w", repoPath, manifestPath, err)
 	}
 	if !res.addedKeys[f.Key] {
 		res.addedKeys[f.Key] = true
 		res.added = append(res.added, f)
 	}
-	a.Log.Info("staged new font", "path", repoPath)
+	return nil
+}
+
+// familyFor returns the family manifest that owns the font's archive: the
+// one already in the index, or a new one.
+//
+// note: a family whose archive exists on the branch without a manifest is
+// refused, exactly as pushAdd refused a loose font whose key had no manifest
+// (index.go's manifestErrs covers a manifest that failed to load).
+func (a *App) familyFor(ctx context.Context, st *runState, f *fonts.Font) (*workdir.FamilyManifest, bool, error) {
+	repoPath := f.RepoPath()
+	fam := st.idx.FamilyFor(repoPath)
+	if fam == nil {
+		exists, err := a.pathExists(ctx, st, repoPath)
+		if err != nil {
+			return nil, false, fmt.Errorf("check repo path %s: %w", repoPath, err)
+		}
+		if exists {
+			return nil, false, fmt.Errorf("invariant violation: repo path %s exists but key %q has no manifest; refusing to overwrite", repoPath, f.Key)
+		}
+		fam = workdir.NewFamilyManifest(f.Family, repoPath, a.Clock())
+	}
+	// Path is the repository path this family's manifest is written to. The
+	// loader fills it with the file it read; deriving it here keeps the value
+	// the push path needs (a workdir-relative slash path).
+	fam.Path = f.ManifestPath()
+	return fam, st.idx.FamilyFor(repoPath) == nil, nil
+}
+
+// stageArchive returns the path of the family archive inside the workdir,
+// fetching it first when the branch already has one: the workdir is sparse,
+// so only manifest/ is checked out. fresh says the branch has no such archive
+// yet, in which case 7z creates it.
+//
+// note: a stale on-disk copy is refetched when its hash is not the one the
+// manifest records. A rebase retry re-runs the apply pass, and a family
+// another run extended lands as a clean file whose content the workdir copy
+// would otherwise reuse silently, dropping the other run's font from the
+// family and writing a manifest that does not describe the staged archive.
+func (a *App) stageArchive(ctx context.Context, st *runState, fam *workdir.FamilyManifest, fresh bool) (string, error) {
+	full := filepath.Join(st.workdir.Dir, filepath.FromSlash(fam.RepoPath))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return "", fmt.Errorf("create repo dir for %s: %w", fam.RepoPath, err)
+	}
+	if fresh {
+		// note: anything already sitting at that path belongs to an aborted
+		// run, and adding to it would put fonts no manifest describes back
+		// into the family, so it is removed instead of updated.
+		if _, err := os.Lstat(full); err == nil {
+			a.Log.Info("removing family archive left by an earlier run", "path", fam.RepoPath)
+			if err := os.Remove(full); err != nil {
+				return "", fmt.Errorf("remove stale family archive %s: %w", fam.RepoPath, err)
+			}
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("check %s: %w", fam.RepoPath, err)
+		}
+		return full, nil
+	}
+	if _, err := os.Lstat(full); err == nil {
+		if a.archiveMatches(fam, full) {
+			return full, nil
+		}
+		a.Log.Info("refetch family archive", "path", fam.RepoPath)
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("check %s: %w", fam.RepoPath, err)
+	}
+	blob, err := a.repoFetch(ctx, st, fam.RepoPath)
+	if err != nil {
+		return "", err
+	}
+	if err := fsutil.AtomicWrite(full, blob, 0o644); err != nil {
+		return "", fmt.Errorf("stage family archive %s: %w", fam.RepoPath, err)
+	}
+	return full, nil
+}
+
+// archiveMatches reports whether the file on disk has the archive hash the
+// manifest records. A manifest that records no hash (a family written by an
+// older run before this field existed, or a fetch that has not been hashed
+// yet) matches nothing, so the archive is refetched.
+func (a *App) archiveMatches(fam *workdir.FamilyManifest, path string) bool {
+	if fam.ArchiveSHA256 == "" {
+		return false
+	}
+	got, _, err := fsutil.HashAndSize(path)
+	return err == nil && got == fam.ArchiveSHA256
+}
+
+// storeFont writes one font into its family archive and stages the result:
+// the font's bytes go into a temp staging file (whose basename is the member
+// name 7z records), 7z updates the archive in the workdir, and the family
+// manifest is rewritten with the archive's new hash and size.
+//
+// note: repo (nil for a new font) is the manifest entry being replaced: its
+// dates carry over to the new entry, the way a replaced font's first_archived
+// did before.
+func (a *App) storeFont(ctx context.Context, st *runState, f *fonts.Font, repo *workdir.Manifest) error {
+	fam, fresh, err := a.familyFor(ctx, st, f)
+	if err != nil {
+		return err
+	}
+	archive, err := a.stageArchive(ctx, st, fam, fresh)
+	if err != nil {
+		return err
+	}
+	content, err := os.ReadFile(f.Path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", f.Path, err)
+	}
+	// 7z records the input path relative to its working directory, so the
+	// staging file's name is the member name and its parent is the cwd.
+	stageDir, err := a.newTempDir("member")
+	if err != nil {
+		return err
+	}
+	stagePath := filepath.Join(stageDir, f.MemberName())
+	if err := os.WriteFile(stagePath, content, 0o644); err != nil {
+		return fmt.Errorf("stage %s: %w", f.MemberName(), err)
+	}
+	if err := a.sevenz.Add(ctx, archive, f.MemberName(), stagePath); err != nil {
+		return fmt.Errorf("add %s to %s: %w", f.MemberName(), fam.RepoPath, err)
+	}
+
+	archiveSHA, archiveSize, err := fsutil.HashAndSize(archive)
+	if err != nil {
+		return err
+	}
+	fam.SetArchive(archiveSHA, archiveSize)
+
+	manifest := manifestForFont(f, fam.RepoPath, f.MemberName())
+	workdir.NewFromFont(manifest, a.Clock())
+	if repo != nil {
+		manifest.FirstArchived = repo.FirstArchived
+	}
+	// PutEntry returns the entry now in the manifest; the index must point
+	// at that same record, not at the local copy.
+	entry := fam.PutEntry(manifest, a.Clock())
+	if err := a.writeManifest(st, fam); err != nil {
+		return err
+	}
+	archiveSlash := filepath.ToSlash(archive)
+	if _, err := a.git.AddSparse(ctx, st.workdir.Dir, archiveSlash, fam.Path); err != nil {
+		return fmt.Errorf("stage %s and %s: %w", archiveSlash, fam.Path, err)
+	}
+	st.idx.ByKey[f.Key] = entry
+	st.idx.ByPath[fam.RepoPath] = fam
+	a.Log.Info("staged font in family archive", "path", fam.RepoPath, "member", f.MemberName())
 	return nil
 }
 
@@ -363,44 +482,24 @@ func (a *App) resolvePushChoice(sync bool, f *fonts.Font, repo *workdir.Manifest
 }
 
 // replaceRepoFont overwrites the repo copy with the local font: dry-run
-// notice, then write the new file, update the manifest, stage and index
-// the result.
+// notice, then store the font in its family archive and update the
+// manifest, stage and index the result.
 func (a *App) replaceRepoFont(ctx context.Context, st *runState, f *fonts.Font, repo *workdir.Manifest, res *pushResult) error {
 	if a.Opts.DryRun {
-		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, repo.RepoPath)
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, displayEntry(repo))
 		if !res.replacedKeys[f.Key] {
 			res.replacedKeys[f.Key] = true
 			res.replaced = append(res.replaced, f)
 		}
 		return nil
 	}
-	content, err := os.ReadFile(f.Path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", f.Path, err)
-	}
-	full := filepath.Join(st.workdir.Dir, filepath.FromSlash(repo.RepoPath))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return fmt.Errorf("create repo dir for %s: %w", repo.RepoPath, err)
-	}
-	if err := fsutil.AtomicWrite(full, content, 0o644); err != nil {
-		return fmt.Errorf("write repo file %s: %w", repo.RepoPath, err)
-	}
-	manifest := manifestForFont(f, repo.RepoPath)
-	manifest.FirstArchived = repo.FirstArchived
-	workdir.UpdateContent(manifest, a.Clock())
-	if err := a.writeManifest(st, f.ManifestPath(), manifest); err != nil {
+	if err := a.storeFont(ctx, st, f, repo); err != nil {
 		return err
 	}
-	if _, err := a.git.AddSparse(ctx, st.workdir.Dir, filepath.FromSlash(repo.RepoPath), filepath.FromSlash(f.ManifestPath())); err != nil {
-		return fmt.Errorf("stage %s and %s: %w", repo.RepoPath, f.ManifestPath(), err)
-	}
-	st.idx.ByKey[f.Key] = manifest
-	st.idx.ByPath[manifest.RepoPath] = manifest
 	if !res.replacedKeys[f.Key] {
 		res.replacedKeys[f.Key] = true
 		res.replaced = append(res.replaced, f)
 	}
-	a.Log.Info("staged replacement", "path", repo.RepoPath)
 	return nil
 }
 
@@ -430,8 +529,33 @@ func (a *App) conflictPrompt(sync bool) string {
 	return "[r]eplace repo copy with local / [s]kip: "
 }
 
-// manifestForFont builds a manifest for a local font going to repoPath.
-func manifestForFont(f *fonts.Font, repoPath string) *workdir.Manifest {
+// stagedArchivesForIndex maps every staged family archive to the archive
+// hash the (updated) index records for it.
+//
+// note: the expectation is read from st.idx, not collected from res.added
+// and res.replaced, so a rebase retry that staged an archive in an earlier
+// pass still verifies. The hash recorded at write time is what the staged
+// blob must be an LFS pointer for: the OID git computed for the pointer is
+// the hash of the archive content, not of the manifest entry.
+func (a *App) stagedArchivesForIndex(ctx context.Context, st *runState, res *pushResult) map[string]string {
+	paths, err := a.git.StagedFontPaths(ctx, st.workdir.Dir)
+	expected := map[string]string{}
+	if err != nil {
+		a.Log.Warn("list staged fonts", "error", err)
+		return expected
+	}
+	for _, p := range paths {
+		fam := st.idx.FamilyFor(filepath.ToSlash(p))
+		if fam != nil {
+			expected[filepath.ToSlash(p)] = fam.ArchiveSHA256
+		}
+	}
+	return expected
+}
+
+// manifestForFont builds the manifest entry for a local font going into the
+// family archive at repoPath, stored there under member.
+func manifestForFont(f *fonts.Font, repoPath string, member string) *workdir.Manifest {
 	return &workdir.Manifest{
 		Key:            f.Key,
 		PostScriptName: f.PostScriptName,
@@ -448,21 +572,22 @@ func manifestForFont(f *fonts.Font, repoPath string) *workdir.Manifest {
 		Size:           f.Size,
 		Ext:            f.Ext,
 		RepoPath:       repoPath,
+		Member:         member,
 	}
 }
 
-// writeManifest writes manifest JSON (mkdir as needed).
-func (a *App) writeManifest(st *runState, manifestPath string, m *workdir.Manifest) error {
-	data, err := workdir.Marshal(m)
+// writeManifest writes one family manifest to its own path (mkdir as needed).
+func (a *App) writeManifest(st *runState, fam *workdir.FamilyManifest) error {
+	data, err := workdir.Marshal(fam)
 	if err != nil {
-		return fmt.Errorf("marshal manifest for %s: %w", m.Key, err)
+		return fmt.Errorf("marshal manifest for family %s: %w", fam.Family, err)
 	}
-	full := filepath.Join(st.workdir.Dir, filepath.FromSlash(manifestPath))
+	full := filepath.Join(st.workdir.Dir, filepath.FromSlash(fam.Path))
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return fmt.Errorf("create manifest dir for %s: %w", manifestPath, err)
+		return fmt.Errorf("create manifest dir for %s: %w", fam.Path, err)
 	}
 	if err := fsutil.AtomicWrite(full, append(data, '\n'), 0o644); err != nil {
-		return fmt.Errorf("write manifest %s: %w", manifestPath, err)
+		return fmt.Errorf("write manifest %s: %w", fam.Path, err)
 	}
 	return nil
 }
@@ -494,13 +619,7 @@ func (a *App) verifyStagedFonts(ctx context.Context, st *runState, res *pushResu
 	if len(staged) == 0 {
 		return nil
 	}
-	expected := map[string]string{}
-	for _, f := range res.added {
-		expected[filepath.ToSlash(f.RepoPath())] = f.SHA256
-	}
-	for _, f := range res.replaced {
-		expected[filepath.ToSlash(f.RepoPath())] = f.SHA256
-	}
+	expected := a.stagedArchivesForIndex(ctx, st, res)
 	if _, err := a.git.LFSStatus(ctx, st.workdir.Dir); err != nil {
 		a.Log.Warn("git lfs status --porcelain", "error", err)
 	}
