@@ -19,9 +19,9 @@ func mkFont(ps, family, sha string) *fonts.Font {
 
 func newPromptApp(t *testing.T, stdin string) *App {
 	t.Helper()
-	var out, errb bytes.Buffer
+	var out, errorBuffer bytes.Buffer
 	opts := cli.Options{Source: "user", Yes: false, Supplied: map[string]bool{}}
-	a := New(opts, "v", strings.NewReader(stdin), &out, &errb)
+	a := New(opts, "v", strings.NewReader(stdin), &out, &errorBuffer)
 	a.Log = testLogger()
 	a.TTY = func() bool { return true }
 	a.prompter = newPrompter(a.Stdin, a.Stdout)
