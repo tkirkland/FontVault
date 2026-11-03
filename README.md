@@ -258,7 +258,7 @@ or 6) print to the console only. `-n` writes no report.
   `git sparse-checkout reapply`, `git lfs prune --verify-remote`.
 - After a successful pull: `git lfs prune --verify-remote`.
 - After any successful run (exit 0 or 2): `git gc --auto`.
-- After a failed run: prune and gc nothing, so unpushed commits and their
+- After a failed run: prune and gc nothing, so un-pushed commits and their
   objects survive.
 - Reports and the cfg are never deleted.
 
