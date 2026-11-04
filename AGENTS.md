@@ -30,6 +30,16 @@ license tracking, public repo) — the user committed it as f068aa0. Retracted
 one review claim after checking `isNonFastForward`: an LFS over-quota push
 exits 1 immediately, it does **not** burn the retry loop.
 
+Manifest name cap (same session, uncommitted): `FamilyManifestPath` used the
+100-char family-directory cap, so `<family>-<hash8>.json` could reach 114.
+Added `manifestNameMaxLen = 86` (100 - 5 - 9) in `fonts.go` next to its
+siblings and used it there; `familyMaxLen` stays 100 for the `fonts/<family>/`
+directory, which has no suffix. The 100 figure is the user's deliberate
+readability rule from the original prompt, not a filesystem limit (real
+per-component limit is 255 bytes). RED→GREEN via the manifest assertions
+appended to `TestMemberNameCap`. Repo-layout change, safe only because no
+manifests or deployed repos exist yet (test phase).
+
 # Project memory — session of 2026-11-03
 
 ## `sfnt.Parse` validation gate removed (invalid-font false positives)
