@@ -100,6 +100,11 @@ If the repository does not exist, push/pull/sync ask
 `Repository <login>/FontVault_fonts does not exist. Create it as public? [y/N]`
 (`-y` answers yes). Compare mode and `-n` never create it.
 
+**Licensing:** FontVault stores font files. It does not read, track or enforce
+font licenses. Fonts you push may be commercial or otherwise restricted, and the
+repository is created as public. You are responsible for what you archive and
+for who can access the repository.
+
 Repository layout:
 
 ```text
