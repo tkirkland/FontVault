@@ -15,10 +15,10 @@ func TestGitAttributesComplete(t *testing.T) {
 	if GitAttributesComplete("") {
 		t.Error("empty content is incomplete")
 	}
-	if GitAttributesComplete("*.7z filter=lfs diff=lfs -text\n") {
+	if GitAttributesComplete("*.tar.br filter=lfs diff=lfs -text\n") {
 		t.Error("missing merge=lfs is incomplete")
 	}
-	if GitAttributesComplete("*.7z filter=lfs diff=lfs merge=lfs\n") {
+	if GitAttributesComplete("*.tar.br filter=lfs diff=lfs merge=lfs\n") {
 		t.Error("missing -text is incomplete")
 	}
 	// A repository still routing loose fonts is incomplete: push rewrites
