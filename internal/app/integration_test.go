@@ -1043,3 +1043,42 @@ func TestArchiveBytesAreDeterministicAcrossMachines(t *testing.T) {
 		t.Fatalf("not an LFS pointer: %q", p1)
 	}
 }
+
+// TestDryRunMirrorsPushSteps: -n walks the same path as a real push and
+// prints every step in the order it would happen: each font decision, then
+// one line per family archive that would be encoded (grouped and sorted the
+// way the real pass encodes them), then the commit, then the push.
+func TestDryRunMirrorsPushSteps(t *testing.T) {
+	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
+	env.writeFont(env.fontDir, "alpha-bold.ttf", alphaVariant("Bold"))
+	env.writeFont(env.fontDir, "bravo.ttf", fontSpecB())
+
+	res := env.runApp(t, []string{"-s", "user", "-d", "push", "-n", "-y"}, "", ghExists("alice"), plat)
+	if res.code != ExitOK {
+		t.Fatalf("exit = %d (stderr: %s)", res.code, res.stderr)
+	}
+	steps := []string{
+		"dry-run: would add " + filepath.Join(env.fontDir, "alpha-bold.ttf") + " -> " + archivePath("Alpha") + "#alpha-bold-",
+		"dry-run: would add " + filepath.Join(env.fontDir, "bravo.ttf") + " -> " + archivePath("Bravo") + "#bravo-bold-",
+		"dry-run: would encode family archive " + archivePath("Alpha") + " (2 fonts: 1 added, 0 replaced) and write " + fonts.FamilyManifestPath("Alpha"),
+		"dry-run: would encode family archive " + archivePath("Bravo") + " (1 font: 1 added, 0 replaced) and write " + fonts.FamilyManifestPath("Bravo"),
+		`dry-run: would commit "Add 2 fonts"`,
+		"dry-run: would push LFS objects and branch main to origin",
+	}
+	last := -1
+	for _, step := range steps {
+		at := strings.Index(res.stdout, step)
+		if at < 0 {
+			t.Errorf("dry-run output lacks %q:\n%s", step, res.stdout)
+			continue
+		}
+		if at < last {
+			t.Errorf("dry-run step out of order: %q\n%s", step, res.stdout)
+		}
+		last = at
+	}
+	// Nothing happened: the remote still has only the seed commits.
+	if n := len(strings.Split(env.bare("log", "--format=%s", "refs/heads/main"), "\n")); n != 2 {
+		t.Errorf("remote commits = %d, want 2", n)
+	}
+}
