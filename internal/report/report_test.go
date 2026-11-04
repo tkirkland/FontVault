@@ -19,7 +19,7 @@ func fullReport() *Report {
 		OS:        "TestOS 1.0",
 		Source:    "user",
 		FontDirs:  []string{"/home/u/.local/share/fonts"},
-		Repo:      "alice/fontvault",
+		Repo:      "alice/FontVault_fonts",
 		Branch:    "main",
 		BaseSHA:   "0123456789abcdef",
 	}}
