@@ -1,3 +1,49 @@
+# Project memory — session of 2026-11-03
+
+## `sfnt.Parse` validation gate removed (invalid-font false positives)
+
+User ran `fontvault -s system -c`: 17 real fonts reported invalid —
+16 `…: unsupported coverage format` (UbuntuSansNerd*) and
+`corbelb.ttf: invalid kern table`. Root cause (proved with a scratch
+dump program, deleted after use): `meta.go`'s `sfnt.Parse` gate made
+golang.org/x/image's *eager* kern/GPOS parsing a validity requirement
+for tables fontvault never reads.
+
+- corbelb/Calibri/Cambria shape: kern format-0 subtable with 14457 pairs
+  → true length 86750 overflows the uint16 subtableLength; the font
+  stores it **clamped at 0xFFFF**, the library demands the *truncated*
+  value (21214) → `errInvalidKernTable`. (The module cache's
+  `x/image@v0.47.0` is a modified copy — its comment names exactly these
+  fonts yet only accepts the wrap-around shape; treat that cache as the
+  ground truth here, not upstream x/image.)
+- Nerd-font shape: GPOS Extension (9)→PairPos format 2 subtable whose
+  Coverage starts with format **0** (invalid per spec, every real shaper
+  tolerates) → `errUnsupportedCoverageFormat`.
+
+Fix chosen by the user ("own structural check"): `Parse` now validates
+structurally only — version tag + `readTableDir` bounds + name/head/OS-2 (which it already reads). Gate, import and
+go.mod/go.sum entry removed (`go mod tidy` also dropped the indirect x/text). `prompt.md`: line
+"Validate each .ttf/.otf …" rewritten to the structural rule; the
+allowed-dependencies bullet for `golang.org/x/image/font/sfnt` deleted.
+`scan.go`: `Inspect` errors passed through un-wrapped — the old
+`fmt.Errorf("invalid font: %w", err)` doubled the prefix (and mislabeled
+read failures). `testfont/build.go`: header/`Build` doc comments promised
+an sfnt.Parse assertion that never existed — rewritten.
+
+Tests (systematic-debugging: RED before the fix, then GREEN):
+`TestParseAcceptsClampedKernOverflow` and `TestParseAcceptsZeroCoverageFormatGPOS`
+in `fonts_test.go`, reproducing the user's two shapes byte-exactly via
+synthetic tables; test-side helpers `withExtraTables`/`assembleTables`
+mirror `testfont.assemble` (tag-sorted, 4-byte aligned) so raw tables
+can be injected without growing the product API.
+
+Verified: RED confirmed, then gofmt/vet/`go build` clean, full
+`go test -count=1 ./...` green (app ~119s), and end-to-end `fonts.Inspect`
+OK on all 17 real files (keys e.g. `Corbel-Bold|MS`,
+`UbuntuSansNF-Regular|DAMA`). Nothing committed. The pre-existing
+modified files `report_test.go`/`compare_report.golden` are the repoName
+rename from earlier today, not this work.
+
 # Project memory — session of 2026-11-01
 
 ## Archive-per-family rework (later work, same date)
