@@ -7,7 +7,7 @@ os: TestOS 1.0
 source: user
 font dirs:
   - /home/u/.local/share/fonts
-repository: alice/fontvault
+repository: alice/FontVault_fonts
 branch: main
 commit compared: 0123456789abcdef
 
