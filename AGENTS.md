@@ -59,6 +59,19 @@ container changed rather than the tool.
   green (45/45 app tests with git-lfs present), markdownlint clean, LF on
   every touched file. `workdir_test.go` still uses `.7z` in fixture *path
   strings* — pure data, deliberately left.
+- **Dry run mirrors the batch pipeline** (user: "shouldn't the dry run
+  represent exactly what would happen"): `pushAdd`/`replaceRepoFont` print
+  their per-font line *and* queue under `-n`; `storeBatches` diverts to
+  `printBatchPlan`, which runs `familyFor` per family (invariant check
+  included, no fetch/encode/stage) and prints
+  `dry-run: would encode family archive <path> (<N> fonts: <a> added, <r>
+  replaced) and write <manifest>` in repo-path order, recording
+  `res.added/replaced` there; `commitIfStaged` prints
+  `dry-run: would commit "<summary line>"`. Covered by
+  `TestDryRunMirrorsPushSteps` (asserts content *and* order of the six
+  steps). Report rows: single-line entries now carry `| reason: …` as a
+  trailing field (`renderEntry`); the two-sided conflict block keeps its own
+  reason line; golden regenerated with `go test ./internal/report -update`.
 
 ## Rebase wedge on same-family concurrent pushes (fixed, uncommitted)
 
