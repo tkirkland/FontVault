@@ -9,9 +9,10 @@ fontvault_sync_*.txt
 
 # agent scratchpad
 prompt.md
+unxed-sevenzip-usage.md
 
 # JetBrains/GoLand defaults
 .idea/
 *.iml
 out/
-/unxed-sevenzip-usage.md
+
