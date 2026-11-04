@@ -40,6 +40,38 @@ per-component limit is 255 bytes). RED→GREEN via the manifest assertions
 appended to `TestMemberNameCap`. Repo-layout change, safe only because no
 manifests or deployed repos exist yet (test phase).
 
+## CI red since 2026-11-01 — three independent causes (fixed, uncommitted)
+
+Investigated with `gh run list` / `gh run view --log-failed`; every run from
+efac6b3 (11-03) onward failed the same three ways, so none was from this
+session's commits.
+
+1. **Linux build:** `//go:build Linux` (capital L) in five files —
+   `osinfo_linux.go` (fa47c27, 11-01) and `pkg_linux.go`, `longpath_linux.go`,
+   `alive_linux.go`, `install_linux_test.go` (four 11-03 commits titled
+   "correct build tag capitalization for Linux" that went the *wrong* way —
+   almost certainly a GoLand spell-check quick-fix capitalizing the word).
+   Constraint identifiers are case-sensitive, so each file was excluded on
+   Linux. All five → `linux`. **Guard for future sessions:** `GOOS=linux go
+   build ./... && GOOS=linux go vet ./...` on the Windows host catches this;
+   the host build cannot. Consider adding `linux` to the IDE dictionary.
+2. **Windows `TestRenderGolden`:** golden stored LF, no `.gitattributes`,
+   runner Git has `core.autocrlf=true` → golden checked out CRLF → byte-exact
+   compare fails. Passes locally only because the user's working copy still
+   holds the un-retouched LF file. Fix: new root `.gitattributes` with
+   `*.golden text eol=lf`. Proved locally: `git -c core.autocrlf=true
+   checkout` writes 52 CRs without the attribute, 0 with it.
+3. **Windows `TestPullOSDefaultProtection`:** the fake classifier was keyed by
+   the path `writeFont` returned, but `modes.go` classifies `f.RealPath`
+   (`filepath.EvalSymlinks`), which on Windows also expands 8.3 short names —
+   CI's temp dir is `C:\Users\RUNNER~1\…`, the user's is not. Lookup missed →
+   reason `-y` instead of `OS default`. Fix in the test: register
+   `filepath.EvalSymlinks(sysPath)`. Product code untouched. **Rule:** any
+   fake keyed by a scanned path must use the resolved form.
+
+Verified: gofmt clean, `go vet` and `GOOS=linux go vet` clean, full
+`go test -count=1 ./...` green (app ~141s), LF preserved on every file.
+
 # Project memory — session of 2026-11-03
 
 ## `sfnt.Parse` validation gate removed (invalid-font false positives)
