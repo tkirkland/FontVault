@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"fontvault/internal/archive7z"
 	"fontvault/internal/cli"
 	"fontvault/internal/config"
 	"fontvault/internal/exclude"
@@ -101,13 +100,10 @@ type App struct {
 	git       *gitops.Runner
 	lock      interface{ Release() error }
 	tempFiles []string
-	tempDirs  []string
 
-	// sevenz runs the 7z tool that stores the repository's family archives.
-	sevenz archive7z.Tool
-
-	// pullArchives caches the family archives this run has fetched, so
-	// several fonts of one family download the archive once.
+	// pullArchives caches the family archives this run has fetched and
+	// decoded, so several fonts of one family download and decode the
+	// archive once.
 	pullArchives map[string]pullArchive
 
 	// housekeep overrides the git prune/gc calls in tests.
@@ -190,35 +186,14 @@ func (a *App) preflightFail(format string, args ...any) int {
 // addTemp registers a temp file for cleanup.
 func (a *App) addTemp(path string) { a.tempFiles = append(a.tempFiles, path) }
 
-// addTempDir registers a temp directory for removal at the end of the run.
-func (a *App) addTempDir(path string) { a.tempDirs = append(a.tempDirs, path) }
-
-// newTempDir creates a scratch directory (registered with addTempDir). It is
-// where 7z staging files live, so a member's name inside an archive can be
-// chosen without touching the repository's working tree.
-func (a *App) newTempDir(label string) (string, error) {
-	dir, err := os.MkdirTemp(os.TempDir(), "fontvault-"+label+"-")
-	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
-	}
-	a.addTempDir(dir)
-	return dir, nil
-}
-
-// cleanupTemps removes every registered temp file and directory.
+// cleanupTemps removes every registered temp file.
 func (a *App) cleanupTemps() {
 	for _, p := range a.tempFiles {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			a.Log.Warn("remove temp file failed", "path", p, "error", err)
 		}
 	}
-	for _, p := range a.tempDirs {
-		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
-			a.Log.Warn("remove temp dir failed", "path", p, "error", err)
-		}
-	}
 	a.tempFiles = nil
-	a.tempDirs = nil
 }
 
 // Run executes the full run and returns the exit code.
@@ -509,9 +484,9 @@ func (a *App) loadCfg() int {
 	return ExitOK
 }
 
-// checkTools verifies git, git-lfs and 7z are available (preflight steps
-// 5+6). The repository stores each font family as one 7z archive, so the 7z
-// tool is required exactly as git and git-lfs are.
+// checkTools verifies git and git-lfs are available (preflight steps 5+6).
+// The family archives need no external tool: fontvault encodes and decodes
+// them itself (internal/archive).
 func (a *App) checkTools() int {
 	if err := gitops.LookPath("git"); err != nil {
 		return a.preflightFail("%v", err)
@@ -519,10 +494,6 @@ func (a *App) checkTools() int {
 	if err := gitops.LookPath("git-lfs"); err != nil {
 		return a.preflightFail("%v", err)
 	}
-	if err := archive7z.Available(); err != nil {
-		return a.preflightFail("%v", err)
-	}
-	a.sevenz = archive7z.New(a.Log)
 	return ExitOK
 }
 
