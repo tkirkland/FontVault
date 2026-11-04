@@ -1,9 +1,8 @@
 // Package testfont builds small but structurally valid TTF and OTF files
 // for tests. The TrueType files are synthesized from scratch; the OpenType
-// files reuse the tiny CFF table from the BSD-licensed CFFTest.otf fixture in
-// golang.org/x/image (https://golang.org/LICENSE) so that sfnt.Parse accepts
-// them, while every metadata table (name, OS/2, head) is synthesized with the
-// requested values.
+// files reuse the tiny CFF table from the BSD-licensed CFFTest.otf fixture
+// in golang.org/x/image (https://golang.org/LICENSE), while every metadata
+// table (name, OS/2, head) is synthesized with the requested values.
 package testfont
 
 import (
@@ -34,8 +33,8 @@ type Spec struct {
 	OTTO bool
 }
 
-// Build returns the bytes of the requested font. It fails the test if the
-// result does not parse with sfnt.Parse.
+// Build returns the bytes of the requested font, assembled per the sfnt
+// table-layout rules (sorted tags, 4-byte aligned bodies).
 func Build(t testing.TB, s Spec) []byte {
 	t.Helper()
 	return build(s)
