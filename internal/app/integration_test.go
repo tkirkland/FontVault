@@ -942,7 +942,14 @@ func TestPullOSDefaultProtection(t *testing.T) {
 		s.Filler = []byte("os-default")
 		return s
 	}())
-	plat.classifier.defaults[sysPath] = true
+	// The scan classifies the symlink-resolved path, and on Windows that
+	// resolution also expands 8.3 short names (CI's temp dir is under
+	// C:\Users\RUNNER~1), so the fake must be keyed by the resolved form.
+	realSysPath, err := filepath.EvalSymlinks(sysPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plat.classifier.defaults[realSysPath] = true
 
 	res := env.runApp(t, []string{"-s", "system", "-d", "pull", "-y"}, "", ghExists("alice"), plat)
 	if res.code != ExitCompleted {
