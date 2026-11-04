@@ -72,6 +72,31 @@ session's commits.
 Verified: gofmt clean, `go vet` and `GOOS=linux go vet` clean, full
 `go test -count=1 ./...` green (app ~141s), LF preserved on every file.
 
+### Follow-up: first real Linux test run exposed a nil-logger panic (fixed, uncommitted)
+
+The user committed the three fixes (755dde4 and siblings); Windows went green,
+Linux reached Test for the first time and panicked:
+`TestLinuxFinishWithoutFcCacheWarnsAndSucceeds` builds `&linuxInstaller{}`
+(nil `log`) and `Finish` called `l.log.Warn` when `fc-cache` is absent — a nil
+`*slog.Logger` panics inside `slog`. Fix in `install_linux.go`: `logger()`
+helper falling back to `slog.Default()` (same nil-tolerant convention as
+`archive7z.New`), `Finish` uses it; constructor and tests untouched.
+
+**Linux tests CAN be run from this host:** cross-compile with
+`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c -o <dir>/<pkg>.test ./internal/<pkg>`
+and execute under WSL (Debian, at `/mnt/c/...`). Gotchas: invoke `wsl.exe`
+from PowerShell or via a script file — Git Bash rewrites `/mnt/c/...` args to
+`C:/Program Files/Git/mnt/...`, and WSL's outer shell re-parses the command
+line so `$vars` in quoted `bash -c` strings expand early. Runner scripts used
+this session lived in `%TEMP%\fv-linux-tests\` (run.sh / count.sh). RED→GREEN
+confirmed there for the panic. WSL initially lacked git-lfs / 7z / fc-cache (23 of 42 app tests SKIPped); with the
+user's go-ahead they were installed
+via `wsl.exe -u root -- bash <script>` (sudo needs a password, `-u root`
+does not): `apt-get install git-lfs p7zip-full fontconfig` → `/usr/bin/7z`,
+`7za`, `7zr`, git-lfs 3.6.1, fc-cache. After that **all 42 app integration
+tests PASS on Linux** from this host, so the Linux CI job can be rehearsed
+locally before pushing (`full.sh` in `%TEMP%\fv-linux-tests\`).
+
 # Project memory — session of 2026-11-03
 
 ## `sfnt.Parse` validation gate removed (invalid-font false positives)
