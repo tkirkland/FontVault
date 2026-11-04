@@ -2,6 +2,8 @@
   <dictionary name="project">
     <words>
       <w>Atoi</w>
+      <w>Gpos</w>
+      <w>GposOdd</w>
       <w>PROGRAMFILES</w>
       <w>WINDIR</w>
       <w>aaaaaaaa</w>
@@ -21,6 +23,8 @@
       <w>fsyncs</w>
       <w>gitconfig</w>
       <w>glyf</w>
+      <w>gpos</w>
+      <w>gposZeroCoverageFormat</w>
       <w>hhea</w>
       <w>hmtx</w>
       <w>housekeep</w>
@@ -28,6 +32,7 @@
       <w>installdir</w>
       <w>itoa</w>
       <w>keyhash</w>
+      <w>latn</w>
       <w>lerr</w>
       <w>loca</w>
       <w>lowestRecPPEM</w>
@@ -46,6 +51,7 @@
       <w>sysname</w>
       <w>testfont</w>
       <w>userfonts</w>
+      <w>xFFFF</w>
     </words>
   </dictionary>
 </component>
