@@ -100,11 +100,6 @@ If the repository does not exist, push/pull/sync ask
 `Repository <login>/FontVault_fonts does not exist. Create it as public? [y/N]`
 (`-y` answers yes). Compare mode and `-n` never create it.
 
-**Licensing:** FontVault stores font files. It does not read, track or enforce
-font licenses. Fonts you push may be commercial or otherwise restricted, and the
-repository is created as public. You are responsible for what you archive and
-for who can access the repository.
-
 Repository layout:
 
 ```text
@@ -295,3 +290,8 @@ go test ./...   # unit + integration tests (integration needs git, git-lfs and 7
 The CI runs on `ubuntu-latest` and `windows-latest`; releases are built for
 `windows/amd64`, `windows/arm64`, `linux/amd64` and `linux/arm64` with
 `CGO_ENABLED=0`.
+
+**Licensing:** FontVault stores font files. It does not read, track or enforce
+font licenses. Fonts you push may be commercial or otherwise restricted, and the
+repository is created as public. You are responsible for what you archive and
+for who can access the repository.
