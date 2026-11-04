@@ -419,8 +419,8 @@ func (r *Runner) PathInBranch(ctx context.Context, dir, branch, path string) (bo
 	return false, err
 }
 
-// StagedFontPaths lists staged files under fonts/ with a .7z extension,
-// i.e. the family archives this run wrote.
+// StagedFontPaths lists staged files under fonts/ with the family archive
+// extension (.tar.br), i.e. the family archives this run wrote.
 func (r *Runner) StagedFontPaths(ctx context.Context, dir string) ([]string, error) {
 	out, err := r.Run(ctx, dir, "diff", "--cached", "--name-only", "--", "fonts")
 	if err != nil {
@@ -431,7 +431,7 @@ func (r *Runner) StagedFontPaths(ctx context.Context, dir string) ([]string, err
 	}
 	var fonts []string
 	for p := range strings.SplitSeq(out, "\n") {
-		if strings.HasSuffix(strings.ToLower(p), ".7z") {
+		if strings.HasSuffix(strings.ToLower(p), ".tar.br") {
 			fonts = append(fonts, p)
 		}
 	}
