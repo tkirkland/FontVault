@@ -61,7 +61,26 @@ func Encode(members map[string][]byte) ([]byte, error) {
 
 	var out bytes.Buffer
 	bw := brotli.NewWriterOptions(&out, brotli.WriterOptions{Quality: Quality, LGWin: windowBits})
-	tw := tar.NewWriter(bw)
+	if err := writeTar(bw, names, members); err != nil {
+		_ = bw.Close() // best effort: the partial output is discarded with the error
+		return nil, err
+	}
+	if err := bw.Close(); err != nil {
+		return nil, fmt.Errorf("encode archive: close Brotli: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// writeTar writes members to w as a tar stream in the given name order. The
+// tar writer is closed on every path; a close failure is reported only when
+// nothing failed before it.
+func writeTar(w io.Writer, names []string, members map[string][]byte) (err error) {
+	tw := tar.NewWriter(w)
+	defer func() {
+		if cerr := tw.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("encode archive: close tar: %w", cerr)
+		}
+	}()
 	for _, name := range names {
 		hdr := &tar.Header{
 			Typeflag: tar.TypeReg,
@@ -72,19 +91,13 @@ func Encode(members map[string][]byte) ([]byte, error) {
 			Format:   tar.FormatUSTAR,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
-			return nil, fmt.Errorf("encode archive: header for %s: %w", name, err)
+			return fmt.Errorf("encode archive: header for %s: %w", name, err)
 		}
 		if _, err := tw.Write(members[name]); err != nil {
-			return nil, fmt.Errorf("encode archive: write %s: %w", name, err)
+			return fmt.Errorf("encode archive: write %s: %w", name, err)
 		}
 	}
-	if err := tw.Close(); err != nil {
-		return nil, fmt.Errorf("encode archive: close tar: %w", err)
-	}
-	if err := bw.Close(); err != nil {
-		return nil, fmt.Errorf("encode archive: close brotli: %w", err)
-	}
-	return out.Bytes(), nil
+	return nil
 }
 
 // Decode returns every member of the archive, keyed by name.
