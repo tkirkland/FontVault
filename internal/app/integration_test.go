@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"fontvault/internal/archive7z"
+	"fontvault/internal/archive"
 	"fontvault/internal/fonts"
 	"fontvault/internal/github"
 	"fontvault/internal/testfont"
@@ -116,7 +115,7 @@ func TestFirstPushToEmptyRepo(t *testing.T) {
 	}
 
 	checkInitThenFontsCommits(t, env, "Add 2 fonts")
-	checkLFSAttributes(t, env, "*.7z")
+	checkLFSAttributes(t, env, "*"+archive.Ext)
 	checkArchiveBlobsArePointers(t, env, 2)
 	checkManifestFileCount(t, env, 2)
 	checkWorktreeHasNoFonts(t, env)
@@ -164,7 +163,7 @@ func checkArchiveBlobsArePointers(t *testing.T, env *testEnv, want int) {
 			t.Errorf("loose font file in the tree: %s", p)
 			continue
 		}
-		if !strings.HasSuffix(p, ".7z") {
+		if !strings.HasSuffix(p, archive.Ext) {
 			continue
 		}
 		seen++
@@ -478,8 +477,11 @@ func checkArchiveMembers(t *testing.T, env *testEnv, family string, want []strin
 		t.Fatalf("archive pointer for %s has no oid: %q", family, pointer)
 	}
 	object := filepath.Join(env.barePath, "lfs", "objects", oid[:2], oid[2:4], oid)
-	tool := archive7z.New(nil)
-	members, err := tool.List(context.Background(), object)
+	data, err := os.ReadFile(object)
+	if err != nil {
+		t.Fatalf("read LFS object %s: %v", object, err)
+	}
+	members, err := archive.Members(data)
 	if err != nil {
 		t.Fatalf("list %s: %v", object, err)
 	}
@@ -793,14 +795,14 @@ func TestSparseWorktreeNoFontsAfterPush(t *testing.T) {
 	}
 }
 
-// TestPruneNotRunAfterFailedRun: an invariant violation aborts the push;
-// the LFS objects staged before the abort survive (no prune), and no report
-// is written.
-func TestPruneNotRunAfterFailedRun(t *testing.T) {
+// TestPushRefusesOrphanArchive: a family archive present on the branch
+// without a manifest is an invariant violation. The push aborts before
+// encoding anything, and no report is written.
+func TestPushRefusesOrphanArchive(t *testing.T) {
 	env := newTestEnv(t)
 	plat := env.newPlat(t)
 
-	// Seed the bare repo with an orphan font file that has no manifest.
+	// Seed the bare repo with an orphan archive that has no manifest.
 	seed := filepath.Join(env.root, "seed")
 	git(t, env.root, "clone", filepath.ToSlash(env.barePath), seed)
 	git(t, seed, "checkout", "-b", "main")
@@ -826,8 +828,6 @@ func TestPruneNotRunAfterFailedRun(t *testing.T) {
 	git(t, seed, "commit", "-m", "orphan")
 	git(t, seed, "push", "origin", "main")
 
-	// Local: Alpha (sorts before Zeta, gets staged first) and Zeta (hits
-	// the invariant violation).
 	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
 	env.writeFont(env.fontDir, "zeta.ttf", orphanSpec)
 
@@ -838,14 +838,36 @@ func TestPruneNotRunAfterFailedRun(t *testing.T) {
 	if !strings.Contains(res.stderr, "invariant violation") {
 		t.Errorf("stderr = %q", res.stderr)
 	}
-	// Alpha was staged before the abort: its LFS object must survive (no
-	// prune after a failed run).
-	objects := env.lsLFSObjects()
-	if len(objects) == 0 {
-		t.Error("LFS objects were pruned after a failed run")
-	}
 	if env.reportText() != "" {
 		t.Error("failed run must write no report")
+	}
+}
+
+// TestPruneNotRunAfterFailedRun: a push that fails after staging (the git
+// identity disappears before the commit) keeps the LFS objects it wrote,
+// because prune never runs after a failed run, and writes no report.
+func TestPruneNotRunAfterFailedRun(t *testing.T) {
+	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
+	seedReport := env.reportText()
+	env.writeFont(env.fontDir, "bravo.ttf", fontSpecB())
+	env.clearIdentity()
+
+	res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat)
+	if res.code != ExitFatal {
+		t.Fatalf("exit = %d, want %d (stdout: %s, stderr: %s)", res.code, ExitFatal, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "user.name and user.email") {
+		t.Errorf("stderr = %q", res.stderr)
+	}
+	// Bravo was staged before the commit failed: its LFS object must
+	// survive (no prune after a failed run).
+	if objects := env.lsLFSObjects(); len(objects) == 0 {
+		t.Error("LFS objects were pruned after a failed run")
+	}
+	// The seed push's report (same minute, same filename) is left as it
+	// was: a failed run writes no report and never deletes one.
+	if env.reportText() != seedReport {
+		t.Error("failed run must not write or remove a report")
 	}
 }
 
@@ -966,3 +988,58 @@ func TestPullOSDefaultProtection(t *testing.T) {
 }
 
 var errInjected = errors.New("injected failure")
+
+// alphaVariant returns another font of the Alpha family (same family name
+// and vendor, different style), so one family archive holds several fonts.
+func alphaVariant(style string) testfont.Spec {
+	s := fontSpecA()
+	s.PostScriptName, s.FullName, s.Subfamily = "Alpha-"+style, "Alpha "+style, style
+	return s
+}
+
+// TestPushEncodesFamiliesWithAllMembers: one push with three families, one
+// of them two fonts, writes three archives whose members are exactly the
+// fonts of each family; a later push adding to Alpha re-encodes only Alpha
+// with the previous members kept.
+func TestPushEncodesFamiliesWithAllMembers(t *testing.T) {
+	env, plat := seededEnv(t, map[string]testfont.Spec{
+		"alpha.ttf":      fontSpecA(),
+		"alpha-bold.ttf": alphaVariant("Bold"),
+		"bravo.ttf":      fontSpecB(),
+		"charlie.ttf":    fontSpecC(),
+	})
+	checkArchiveBlobsArePointers(t, env, 3)
+	checkArchiveMembers(t, env, "Alpha", []string{"alpha-regular-", "alpha-bold-"})
+	checkArchiveMembers(t, env, "Bravo", []string{"bravo-bold-"})
+	checkArchiveMembers(t, env, "Charlie", []string{"charlie-regular-"})
+	bravoBefore := env.show("refs/heads/main", archivePath("Bravo"))
+
+	env.writeFont(env.fontDir, "alpha-italic.ttf", alphaVariant("Italic"))
+	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
+		t.Fatalf("second push: %d (%s)", res.code, res.stderr)
+	}
+	checkArchiveMembers(t, env, "Alpha", []string{"alpha-regular-", "alpha-bold-", "alpha-italic-"})
+	if env.show("refs/heads/main", archivePath("Bravo")) != bravoBefore {
+		t.Error("an untouched family's archive must not be rewritten")
+	}
+}
+
+// TestArchiveBytesAreDeterministicAcrossMachines: two independent machines
+// (separate repos and workdirs) archiving the same fonts produce the same
+// archive bytes, so the LFS pointer (oid and size) is identical.
+func TestArchiveBytesAreDeterministicAcrossMachines(t *testing.T) {
+	specs := map[string]testfont.Spec{
+		"alpha.ttf":      fontSpecA(),
+		"alpha-bold.ttf": alphaVariant("Bold"),
+	}
+	env1, _ := seededEnv(t, specs)
+	env2, _ := seededEnv(t, specs)
+	p1 := env1.show("refs/heads/main", archivePath("Alpha"))
+	p2 := env2.show("refs/heads/main", archivePath("Alpha"))
+	if p1 != p2 {
+		t.Errorf("archive pointers differ between machines:\n%s\n---\n%s", p1, p2)
+	}
+	if !strings.Contains(p1, "oid sha256:") {
+		t.Fatalf("not an LFS pointer: %q", p1)
+	}
+}
