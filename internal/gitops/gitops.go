@@ -353,6 +353,18 @@ func (r *Runner) Rebase(ctx context.Context, dir, branch string) (string, error)
 	return r.Run(ctx, dir, "rebase", "origin/"+branch)
 }
 
+// RebaseAbort abandons an in-progress rebase and restores the branch to
+// the commit it pointed at before the rebase started.
+func (r *Runner) RebaseAbort(ctx context.Context, dir string) (string, error) {
+	return r.Run(ctx, dir, "rebase", "--abort")
+}
+
+// ResetHardToOrigin moves the current branch to origin/<branch>, discarding
+// the local commits that sat on top of it and their working tree changes.
+func (r *Runner) ResetHardToOrigin(ctx context.Context, dir, branch string) (string, error) {
+	return r.Run(ctx, dir, "reset", "--hard", "origin/"+branch)
+}
+
 // CatFileBlob prints the byte-exact content of <ref>:<path>.
 func (r *Runner) CatFileBlob(ctx context.Context, dir, ref, path string) ([]byte, error) {
 	return r.rawOutput(ctx, dir, "cat-file", "blob", ref+":"+path)
