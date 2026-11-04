@@ -41,8 +41,7 @@ conflicts skipped
     reason: skipped with -y
 
 excluded locally
-  Excluded | Regular | 1.0 | 22222222 | /l/x.ttf
-    reason: OS default (owner SID)
+  Excluded | Regular | 1.0 | 22222222 | /l/x.ttf | reason: OS default (owner SID)
 
 skipped formats
   .fon: 1
