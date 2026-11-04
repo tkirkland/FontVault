@@ -358,14 +358,14 @@ func TestMemberNameCap(t *testing.T) {
 		t.Errorf("member name should start with 87 psname bytes: %q", base)
 	}
 	// the family component is capped too, because the whole family shares
-	// one archive whose name is derived from it: 88 family bytes + "-"
-	// + familyhash8 + ".7z" = exactly 100
+	// one archive whose name is derived from it: 84 family bytes + "-"
+	// + familyhash8 + ".tar.br" = exactly 100
 	archive := f.RepoFileName()
 	if len(archive) != 100 {
 		t.Errorf("archive name length = %d, want exactly 100", len(archive))
 	}
-	if !strings.HasSuffix(archive, "-"+HashKey(f.Family)[:8]+".7z") {
-		t.Errorf("archive name = %q, want it to keep familyhash8 + .7z", archive)
+	if !strings.HasSuffix(archive, "-"+HashKey(f.Family)[:8]+".tar.br") {
+		t.Errorf("archive name = %q, want it to keep familyhash8 + .tar.br", archive)
 	}
 	// the manifest name follows the same 100-character rule: 86 family
 	// bytes + "-" + familyhash8 + ".json" = exactly 100
