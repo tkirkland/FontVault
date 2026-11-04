@@ -23,10 +23,6 @@ and are never read beyond the directory listing.
 
 - Go (to build from source)
 - `git` and `git-lfs` on PATH (fontvault shells out to them; it does not use go-git)
-- `7z` (7-Zip) on PATH (fontvault shells out to it as well: each font family is
-  stored as one 7z archive, and the 7z container has no Go implementation). A
-  missing one fails in preflight with an instruction to install 7-Zip. On
-  Windows the default install directory `%PROGRAMFILES%\7-Zip` is also searched.
 - A GitHub account with a token (see below)
 - `fc-cache` is optional on Linux (a missing one warns but does not fail)
 
@@ -103,14 +99,19 @@ If the repository does not exist, push/pull/sync ask
 Repository layout:
 
 ```text
-fonts/<family>/<family>-<familyhash8>.7z
+fonts/<family>/<family>-<familyhash8>.tar.br
 manifest/<family>-<familyhash8>.json
 .gitattributes
 ```
 
-Every font family is **one 7z archive**, even a family with a single font; fonts
-are never stored in the repository as loose files. Inside the archive each font
-is stored as `<psname>-<keyhash8>.<ext>`.
+Every font family is **one archive**, a tar stream compressed with brotli (`.tar.br`), even a family with a single font;
+fonts are never stored in the
+repository as loose files. Inside the archive each font is stored as
+`<psname>-<keyhash8>.<ext>`. fontvault writes and reads the archives itself, with
+no external tool: brotli at its highest quality matches 7-Zip's LZMA2 on font
+data, and the output is deterministic, so the same fonts give the same archive
+bytes on every machine. Encoding is slow (a few seconds per megabyte of fonts),
+so push encodes the changed families in parallel, one per CPU core.
 
 `keyhash` is the SHA-256 of the font key (PostScript name + `|` + vendor ID) and
 `familyhash` is the SHA-256 of the family string; the 8-character prefixes keep
@@ -120,7 +121,7 @@ do not change when the content changes.
 The manifest holds one record for the family (its archive path, the archive's
 SHA-256 and size, and its dates) plus one entry per font inside the archive (each with its own `sha256`, `size`, `ext`
 and member name). The `.gitattributes`
-file routes `*.7z` through LFS and is fixed in its own commit before any font
+file routes `*.tar.br` through LFS and is fixed in its own commit before any font
 commit (push only).
 
 Replacing one font rewrites the family's whole archive, so a new LFS object for
@@ -284,7 +285,7 @@ or 6) print to the console only. `-n` writes no report.
 ## Development
 
 ```console
-go test ./...   # unit + integration tests (integration needs git, git-lfs and 7z)
+go test ./...   # unit + integration tests (integration needs git and git-lfs)
 ```
 
 The CI runs on `ubuntu-latest` and `windows-latest`; releases are built for
