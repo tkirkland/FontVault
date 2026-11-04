@@ -2,7 +2,6 @@ package fonts
 
 import (
 	"encoding/binary"
-	"sort"
 	"strings"
 	"testing"
 
@@ -118,7 +117,7 @@ func TestTTFOTFValidation(t *testing.T) {
 
 func TestParseAcceptsClampedKernOverflow(t *testing.T) {
 	// The shape corbelb.ttf (and Microsoft's Cambria/Calibri) carry: one
-	// format-0 kern subtable with 14457 pairs whose true length (86750)
+	// format-0 Kern subtable with 14457 pairs whose true length (86750)
 	// overflows the uint16 subtableLength field, which the font stores
 	// clamped at 0xFFFF. The font is real and loads fine; only strict
 	// kerning parsers reject it, and fontvault never reads kerning.
@@ -148,9 +147,9 @@ func TestParseAcceptsZeroCoverageFormatGPOS(t *testing.T) {
 }
 
 // withExtraTables rebuilds a built fixture font with additional raw tables
-// (tag+payload each): it re-reads the table directory, sorts all tables by
-// tag and rewrites the header, directory and 4-byte aligned bodies, mirroring
-// testfont.assemble.
+// (tag+payload each): it re-reads the table directory, then hands all tables
+// to testfont.Assemble, which sorts by tag and rewrites the header, directory
+// and 4-byte aligned bodies.
 func withExtraTables(t *testing.T, b []byte, extras ...[]byte) []byte {
 	t.Helper()
 	if len(b) < 12 {
@@ -158,7 +157,7 @@ func withExtraTables(t *testing.T, b []byte, extras ...[]byte) []byte {
 	}
 	num := int(binary.BigEndian.Uint16(b[4:6]))
 	var tables [][]byte
-	for i := 0; i < num; i++ {
+	for i := range num {
 		if 12+16*(i+1) > len(b) {
 			t.Fatal("fixture table directory out of bounds")
 		}
@@ -173,52 +172,10 @@ func withExtraTables(t *testing.T, b []byte, extras ...[]byte) []byte {
 		tables = append(tables, entry)
 	}
 	tables = append(tables, extras...)
-	sort.SliceStable(tables, func(i, j int) bool {
-		return string(tables[i][:4]) < string(tables[j][:4])
-	})
-	return assembleTables(tables, binary.BigEndian.Uint32(b[0:4]))
+	return testfont.Assemble(tables, binary.BigEndian.Uint32(b[0:4]))
 }
 
-// assembleTables mirrors testfont.assemble: header, search math, table
-// directory, then the 4-byte aligned bodies.
-func assembleTables(tables [][]byte, version uint32) []byte {
-	n := len(tables)
-	out := make([]byte, 12+16*n)
-	binary.BigEndian.PutUint32(out[0:], version)
-	binary.BigEndian.PutUint16(out[4:], uint16(n))
-	searchRange := uint16(1)
-	for searchRange*2 <= uint16(n) {
-		searchRange *= 2
-	}
-	searchRange *= 16
-	entrySelector := uint16(0)
-	for 1<<(entrySelector+1) <= n {
-		entrySelector++
-	}
-	binary.BigEndian.PutUint16(out[6:], searchRange)
-	binary.BigEndian.PutUint16(out[8:], entrySelector)
-	binary.BigEndian.PutUint16(out[10:], uint16(16*n)-searchRange)
-	offset := 12 + 16*n
-	for i, tb := range tables {
-		rec := out[12+16*i:]
-		copy(rec[0:], tb[:4])
-		binary.BigEndian.PutUint32(rec[8:], uint32(offset))
-		binary.BigEndian.PutUint32(rec[12:], uint32(len(tb)-4))
-		offset += len(tb) - 4
-		if pad := offset % 4; pad != 0 {
-			offset += 4 - pad
-		}
-	}
-	for _, tb := range tables {
-		out = append(out, tb[4:]...)
-		for len(out)%4 != 0 {
-			out = append(out, 0)
-		}
-	}
-	return out
-}
-
-// kernClampedOverflow is a kern table in corbelb.ttf's shape: a single
+// kernClampedOverflow is a Kern table in corbelb.ttf's shape: a single
 // format-0 subtable whose pairs array outgrows the uint16 subtableLength,
 // which the font stores clamped at 0xFFFF.
 func kernClampedOverflow() []byte {
@@ -238,7 +195,7 @@ func kernClampedOverflow() []byte {
 }
 
 // gposZeroCoverageFormat is a GPOS table in UbuntuSansNerdFont's shape:
-// latn/DefaultLangSys -> kern feature -> one Extension lookup whose single
+// latn/DefaultLangSys -> Kern feature -> one Extension lookup whose single
 // PairPos format-2 subtable has a Coverage table with format 0.
 func gposZeroCoverageFormat() []byte {
 	payload := make([]byte, 92)
