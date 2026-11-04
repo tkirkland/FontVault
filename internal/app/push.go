@@ -252,8 +252,6 @@ func (a *App) pushAdd(f *fonts.Font, res *pushResult, batches pushBatches) {
 	// index. familyFor checks it while resolving the family manifest.
 	if a.Opts.DryRun {
 		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would add %s -> %s\n", f.Path, displayFont(f))
-		recordAdded(res, f)
-		return
 	}
 	batches.add(f, nil, false)
 }
@@ -399,11 +397,16 @@ func (b pushBatches) add(f *fonts.Font, repo *workdir.Manifest, replace bool) {
 // storeBatches writes every queued family: the existing archives are
 // fetched one at a time (git), the archives are encoded in parallel (CPU),
 // and the manifests are written and staged one at a time (git), in repo
-// path order so the pass is deterministic.
+// path order so the pass is deterministic. A dry run walks the same
+// families in the same order and prints what each would get, so its output
+// mirrors the real pass step for step.
 func (a *App) storeBatches(ctx context.Context, st *runState, res *pushResult, batches pushBatches) error {
 	ordered := make([]*pushBatch, 0, len(batches))
 	for _, path := range slices.Sorted(maps.Keys(batches)) {
 		ordered = append(ordered, batches[path])
+	}
+	if a.Opts.DryRun {
+		return a.printBatchPlan(ctx, st, res, ordered)
 	}
 	for _, b := range ordered {
 		fam, fresh, err := a.familyFor(ctx, st, b.stores[0].font)
@@ -425,6 +428,41 @@ func (a *App) storeBatches(ctx context.Context, st *runState, res *pushResult, b
 		}
 	}
 	return nil
+}
+
+// printBatchPlan is storeBatches under -n: it resolves each family exactly
+// as the real pass does (so an invariant violation surfaces in a dry run
+// too), prints the archive and manifest the family would get, and lists the
+// fonts in the outcome, without fetching, encoding or staging anything.
+func (a *App) printBatchPlan(ctx context.Context, st *runState, res *pushResult, ordered []*pushBatch) error {
+	for _, b := range ordered {
+		fam, _, err := a.familyFor(ctx, st, b.stores[0].font)
+		if err != nil {
+			return err
+		}
+		added, replaced := 0, 0
+		for _, s := range b.stores {
+			if s.replace {
+				replaced++
+				recordReplaced(res, s.font)
+			} else {
+				added++
+				recordAdded(res, s.font)
+			}
+		}
+		total := len(fam.Fonts) + added
+		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would encode family archive %s (%s: %d added, %d replaced) and write %s\n",
+			fam.RepoPath, plural(total, "font"), added, replaced, fam.Path)
+	}
+	return nil
+}
+
+// plural formats a count with its noun ("1 font", "2 fonts").
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // encodeBatches encodes the family archives concurrently, one worker per
@@ -612,8 +650,6 @@ func (a *App) resolvePushChoice(sync bool, f *fonts.Font, repo *workdir.Manifest
 func (a *App) replaceRepoFont(f *fonts.Font, repo *workdir.Manifest, res *pushResult, batches pushBatches) {
 	if a.Opts.DryRun {
 		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, displayEntry(repo))
-		recordReplaced(res, f)
-		return
 	}
 	batches.add(f, repo, true)
 }
@@ -754,6 +790,10 @@ func (a *App) verifyStagedFonts(ctx context.Context, st *runState) error {
 // commitIfStaged commits the index when anything is staged.
 func (a *App) commitIfStaged(ctx context.Context, st *runState, res *pushResult) error {
 	if a.Opts.DryRun {
+		if len(res.added)+len(res.replaced) > 0 {
+			summary, _, _ := strings.Cut(string(commitMessage(res.added, res.replaced)), "\n")
+			_, _ = fmt.Fprintf(a.Stdout, "dry-run: would commit %q\n", summary)
+		}
 		return nil
 	}
 	staged, err := a.git.StagedFontPaths(ctx, st.workdir.Dir)
