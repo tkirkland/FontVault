@@ -80,6 +80,9 @@ const (
 	// The archive name is "<family>-<familyhash8>.7z" and must stay within
 	// 100 characters: 100 - 3 (".7z") - 9 ("-"+familyhash8) = 88.
 	archiveNameMaxLen = 88
+	// The manifest name is "<family>-<familyhash8>.json" and must stay within
+	// 100 characters: 100 - 5 (".json") - 9 ("-"+familyhash8) = 86.
+	manifestNameMaxLen = 86
 )
 
 // RepoPath returns the repository path of the family archive holding this
@@ -120,7 +123,7 @@ func (f *Font) ManifestPath() string {
 // FamilyManifestPath builds the manifest path for a family name. The key-hash
 // suffix makes the name unique even when two family names sanitize alike.
 func FamilyManifestPath(family string) string {
-	short := strings.ToLower(SanitizeComponent(family, familyMaxLen))
+	short := strings.ToLower(SanitizeComponent(family, manifestNameMaxLen))
 	return "manifest/" + short + "-" + HashKey(family)[:8] + ".json"
 }
 
