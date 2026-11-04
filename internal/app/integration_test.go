@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"fontvault/internal/archive7z"
 	"fontvault/internal/fonts"
 	"fontvault/internal/github"
 	"fontvault/internal/testfont"
@@ -388,6 +390,112 @@ func TestNonFastForwardResolvedByRetry(t *testing.T) {
 	}
 	if !strings.Contains(log[0], "Add 1 font") || log[1] != "external commit" {
 		t.Errorf("history order wrong: %v", log)
+	}
+}
+
+// TestNonFastForwardSameFamilyRecovers: two machines add different fonts to
+// the same family. The second machine's commit lands on the remote during the
+// first machine's push, so both commits rewrite the same family archive and
+// manifest and a plain rebase conflicts. The run must still finish with all
+// three fonts in the family and leave the workdir usable for the next run.
+func TestNonFastForwardSameFamilyRecovers(t *testing.T) {
+	env := newTestEnv(t)
+	plat := env.newPlat(t)
+	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
+	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
+		t.Fatalf("first push: %d (%s)", res.code, res.stderr)
+	}
+	base := env.head()
+
+	// A second machine (its own workdir) adds Alpha Bold to the family, then
+	// the remote is rewound so that commit is pending in its workdir only.
+	bold := fontSpecA()
+	bold.PostScriptName, bold.FullName, bold.Subfamily = "Alpha-Bold", "Alpha Bold", "Bold"
+	boldPath := env.writeFont(env.fontDir, "alpha-bold.ttf", bold)
+	ext := filepath.Join(env.root, "external")
+	extArgs := append(pushArgs("user"), "-w", ext)
+	if res := env.runApp(t, extArgs, "", ghExists("alice"), plat); res.code != ExitOK {
+		t.Fatalf("external push: %d (%s)", res.code, res.stderr)
+	}
+	if err := os.Remove(boldPath); err != nil {
+		t.Fatal(err)
+	}
+	env.bare("update-ref", "refs/heads/main", base)
+
+	// The first machine's pre-push hook pushes the external commit on the
+	// first invocation only, moving the remote underneath the app's push.
+	marker := filepath.ToSlash(filepath.Join(env.root, "hook-ran"))
+	hook := filepath.Join(env.workdir, ".git", "hooks", "pre-push")
+	script := "#!/bin/sh\n" +
+		"if [ ! -f \"" + marker + "\" ]; then\n" +
+		"  touch \"" + marker + "\"\n" +
+		"  git -C \"" + filepath.ToSlash(ext) + "\" push origin main >/dev/null 2>&1\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	italic := fontSpecA()
+	italic.PostScriptName, italic.FullName, italic.Subfamily = "Alpha-Italic", "Alpha Italic", "Italic"
+	env.writeFont(env.fontDir, "alpha-italic.ttf", italic)
+	res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat)
+	if res.code != ExitOK {
+		t.Fatalf("exit = %d (stdout: %s, stderr: %s)", res.code, res.stdout, res.stderr)
+	}
+	log := strings.Split(env.bare("log", "--format=%s", "refs/heads/main"), "\n")
+	if len(log) != 4 {
+		t.Fatalf("commits = %v", log)
+	}
+	manifest := env.show("refs/heads/main", fonts.FamilyManifestPath("Alpha"))
+	for _, want := range []string{"Alpha-Regular", "Alpha-Bold", "Alpha-Italic"} {
+		if !strings.Contains(manifest, `"postscript_name": "`+want+`"`) && !strings.Contains(manifest, `"postscript_name":"`+want+`"`) {
+			t.Errorf("family manifest lacks %s:\n%s", want, manifest)
+		}
+	}
+
+	checkArchiveMembers(t, env, "Alpha", []string{"alpha-regular-", "alpha-bold-", "alpha-italic-"})
+
+	// The workdir must not be left mid-rebase: a repeat push is a no-op.
+	if res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat); res.code != ExitOK {
+		t.Errorf("repeat push after recovery: %d (stderr: %s)", res.code, res.stderr)
+	}
+}
+
+// checkArchiveMembers lists the family archive the remote branch points at
+// (through its LFS pointer and the bare repo's LFS store) and asserts it holds
+// exactly one member per prefix in want.
+func checkArchiveMembers(t *testing.T, env *testEnv, family string, want []string) {
+	t.Helper()
+	pointer := env.show("refs/heads/main", archivePath(family))
+	var oid string
+	for line := range strings.SplitSeq(pointer, "\n") {
+		if rest, ok := strings.CutPrefix(line, "oid sha256:"); ok {
+			oid = strings.TrimSpace(rest)
+		}
+	}
+	if len(oid) != 64 {
+		t.Fatalf("archive pointer for %s has no oid: %q", family, pointer)
+	}
+	object := filepath.Join(env.barePath, "lfs", "objects", oid[:2], oid[2:4], oid)
+	tool := archive7z.New(nil)
+	members, err := tool.List(context.Background(), object)
+	if err != nil {
+		t.Fatalf("list %s: %v", object, err)
+	}
+	if len(members) != len(want) {
+		t.Errorf("archive members = %v, want %d", members, len(want))
+	}
+	for _, prefix := range want {
+		found := false
+		for _, m := range members {
+			if strings.HasPrefix(m, prefix) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("archive lacks a %s* member: %v", prefix, members)
+		}
 	}
 }
 
