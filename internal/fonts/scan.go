@@ -130,7 +130,9 @@ func scanFile(path string, visitedFiles map[string]bool, res *ScanResult) {
 	visitedFiles[realPath] = true
 	f, err := Inspect(path)
 	if err != nil {
-		res.Errors = append(res.Errors, PathError{Path: path, Err: fmt.Errorf("invalid font: %w", err)})
+		// Inspect's errors are already prefixed ("invalid font: ..." or
+		// "read font file: ..."); re-wrapping duplicated the label.
+		res.Errors = append(res.Errors, PathError{Path: path, Err: err})
 		return
 	}
 	f.RealPath = realPath
