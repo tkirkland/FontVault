@@ -54,7 +54,7 @@ func (l *linuxInstaller) RegisterFont(_ context.Context, _ string, _ Meta) error
 func (l *linuxInstaller) Finish(_ context.Context) error {
 	fc, err := exec.LookPath("fc-cache")
 	if err != nil {
-		l.log.Warn("fc-cache not found; skipping font cache rebuild", "error", err)
+		l.logger().Warn("fc-cache not found; skipping font cache rebuild", "error", err)
 		return nil
 	}
 	cmd := exec.Command(fc, "-f", l.installDir)
@@ -62,6 +62,16 @@ func (l *linuxInstaller) Finish(_ context.Context) error {
 		return fmt.Errorf("fc-cache -f %s: %w: %s", l.installDir, err, string(out))
 	}
 	return nil
+}
+
+// logger returns the installer's logger, falling back to the default one so
+// a zero-value linuxInstaller (as the unit tests build) never dereferences a
+// nil *slog.Logger. newPlatformInstaller always sets log.
+func (l *linuxInstaller) logger() *slog.Logger {
+	if l.log == nil {
+		return slog.Default()
+	}
+	return l.log
 }
 
 // checkSystemPrereqs requires write access to /usr/local/share/fonts,
