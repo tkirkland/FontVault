@@ -107,11 +107,8 @@ manifest/<family>-<familyhash8>.json
 Every font family is **one archive**, a tar stream compressed with brotli (`.tar.br`), even a family with a single font;
 fonts are never stored in the
 repository as loose files. Inside the archive each font is stored as
-`<psname>-<keyhash8>.<ext>`. fontvault writes and reads the archives itself, with
-no external tool: brotli at its highest quality matches 7-Zip's LZMA2 on font
-data, and the output is deterministic, so the same fonts give the same archive
-bytes on every machine. Encoding is slow (a few seconds per megabyte of fonts),
-so push encodes the changed families in parallel, one per CPU core.
+`<psname>-<keyhash8>.<ext>`. fontvault writes and reads the archives itself,
+with no external tool (see [Why tar + brotli](#why-tar--brotli) below).
 
 `keyhash` is the SHA-256 of the font key (PostScript name + `|` + vendor ID) and
 `familyhash` is the SHA-256 of the family string; the 8-character prefixes keep
@@ -127,6 +124,63 @@ commit (push only).
 Replacing one font rewrites the family's whole archive, so a new LFS object for
 that family enters git history (the previous one remains there), and every
 font of the family is re-uploaded at that point.
+
+### Why tar + brotli
+
+The archive format had to satisfy four constraints at once: the tool is a
+single static binary (`CGO_ENABLED=0`, so no C compression libraries), the
+repository lives in Git LFS where storage is limited, so the compression ratio
+matters, every family must be one object, and nothing external should have to
+be installed beyond `git` and `git-lfs`.
+
+The first version shelled out to 7-Zip (LZMA2), which compresses TrueType data
+very well but added an install requirement on every machine and in CI, and
+produced archive bytes that depended on the 7-Zip build that wrote them. No
+pure-Go library can *write* 7z archives (only read them), so keeping the
+container meant keeping the external tool. The candidates that Go can write
+natively were measured on real font families from a Windows installation (archive size as a percentage of the raw fonts,
+lower is better):
+
+| Codec                            | Calibri (8.1 MB) | Corbel (1.5 MB) | Segoe UI (4.7 MB) |
+|----------------------------------|------------------|-----------------|-------------------|
+| 7-Zip LZMA2 (previous, external) | 31.5%            | 29.2%           | 38.8%             |
+| **brotli, quality 11 (chosen)**  | **32.2%**        | **29.5%**       | **39.4%**         |
+| xz (pure-Go encoder)             | 37.4%            | 34.4%           | 44.9%             |
+| zstd, best level                 | 39.2%            | 37.7%           | 47.2%             |
+| zip, Deflate level 9 (stdlib)    | 50.2%            | 54.2%           | 58.2%             |
+
+Brotli at its highest quality lands within one or two percent of 7-Zip. That is
+not a coincidence: brotli was designed around font data and ships a built-in
+dictionary tuned for it, which is why the WOFF2 web font format uses it. The
+pure-Go xz encoder is a weaker match finder than the real LZMA2 and costs about
+a fifth more space; Deflate, the only option in the standard library, costs
+more than half again as much.
+
+The archive is a **tar** stream so that one brotli stream covers the whole
+family ("solid" compression): the weights of a family share most of their
+glyph outlines and compress far better together than one file at a time.
+Extracting one font means decoding the whole family, but decoding is fast (well under a tenth of a second for a large
+family), so pull does not notice.
+
+The trade is encode time. Quality 11 runs at roughly four to five seconds per
+megabyte of fonts, single-threaded, and a single brotli stream cannot use more
+than one core. Push therefore encodes only the families that changed, and
+encodes them in parallel, one goroutine per family up to the number of CPU
+cores. A normal push re-encodes a few megabytes; the first push of a large font
+library is the slow case. The quality is a single constant in
+`internal/archive`, where quality 10 halves the time for one to two percent
+more space and quality 9 is an order of magnitude faster for five percent more.
+
+Two further properties fell out of writing the archives in Go. The output is **deterministic**: members are written in
+sorted order with fixed metadata, so
+the same fonts produce byte-identical archives on every machine, and the
+`archive_sha256` in a manifest no longer depends on which tool wrote the file.
+And the dependency is one pure-Go module, `github.com/andybalholm/brotli`
+(MIT), which keeps the static single-binary build.
+
+To open a family archive by hand, decompress it with the `brotli` command-line
+tool (or NanaZip on Windows) and then extract the tar with any tar tool; 7-Zip
+proper does not read brotli.
 
 ## Token sources and required permissions
 
