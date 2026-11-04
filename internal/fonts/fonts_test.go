@@ -367,6 +367,15 @@ func TestMemberNameCap(t *testing.T) {
 	if !strings.HasSuffix(archive, "-"+HashKey(f.Family)[:8]+".7z") {
 		t.Errorf("archive name = %q, want it to keep familyhash8 + .7z", archive)
 	}
+	// the manifest name follows the same 100-character rule: 86 family
+	// bytes + "-" + familyhash8 + ".json" = exactly 100
+	manifest := strings.TrimPrefix(f.ManifestPath(), "manifest/")
+	if len(manifest) != 100 {
+		t.Errorf("manifest name length = %d, want exactly 100", len(manifest))
+	}
+	if !strings.HasSuffix(manifest, "-"+HashKey(f.Family)[:8]+".json") {
+		t.Errorf("manifest name = %q, want it to keep familyhash8 + .json", manifest)
+	}
 }
 
 func TestFamilyManifestPath(t *testing.T) {
