@@ -260,11 +260,12 @@ func renderEntry(b *strings.Builder, name string, e Entry) {
 		renderConflictEntry(b, e)
 		return
 	}
-	_, _ = fmt.Fprintf(b, "  %s | %s | %s | %s | %s\n",
+	_, _ = fmt.Fprintf(b, "  %s | %s | %s | %s | %s",
 		dash(e.Family), dash(e.Subfamily), dash(e.Version), dash(e.ShortHash), dash(e.Path))
 	if e.Reason != "" {
-		_, _ = fmt.Fprintf(b, "    reason: %s\n", e.Reason)
+		_, _ = fmt.Fprintf(b, " | reason: %s", e.Reason)
 	}
+	b.WriteString("\n")
 }
 
 // renderConflictEntry prints a two-sided conflict block.
