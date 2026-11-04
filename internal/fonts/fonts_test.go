@@ -176,12 +176,12 @@ func withExtraTables(t *testing.T, b []byte, extras ...[]byte) []byte {
 	sort.SliceStable(tables, func(i, j int) bool {
 		return string(tables[i][:4]) < string(tables[j][:4])
 	})
-	return assembleTables(t, tables, binary.BigEndian.Uint32(b[0:4]))
+	return assembleTables(tables, binary.BigEndian.Uint32(b[0:4]))
 }
 
 // assembleTables mirrors testfont.assemble: header, search math, table
 // directory, then the 4-byte aligned bodies.
-func assembleTables(t *testing.T, tables [][]byte, version uint32) []byte {
+func assembleTables(tables [][]byte, version uint32) []byte {
 	n := len(tables)
 	out := make([]byte, 12+16*n)
 	binary.BigEndian.PutUint32(out[0:], version)
@@ -251,7 +251,7 @@ func gposZeroCoverageFormat() []byte {
 	p16(6, 40) // featureListOffset
 	p16(8, 56) // lookupListOffset
 	p16(16, 1) // scriptCount
-	copy(payload[18:], []byte("latn"))
+	copy(payload[18:], "latn")
 	p16(22, 8)      // scriptTableOffset
 	p16(24, 4)      // defaultLangSysOffset
 	p16(26, 0)      // langSysCount
@@ -260,7 +260,7 @@ func gposZeroCoverageFormat() []byte {
 	p16(32, 1)      // featureIndexCount
 	p16(34, 0)      // -> feature index 0
 	p16(40, 1)      // featureCount
-	copy(payload[42:], []byte("kern"))
+	copy(payload[42:], "kern")
 	p16(46, 8)                                   // featureOffset
 	p16(48, 0)                                   // featureFlags
 	p16(50, 1)                                   // feature's lookup count
