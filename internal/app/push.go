@@ -2,15 +2,22 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"fontvault/internal/archive"
 	"fontvault/internal/fonts"
 	"fontvault/internal/fsutil"
 	"fontvault/internal/gitops"
@@ -214,10 +221,12 @@ func (a *App) ensureGitAttributes(ctx context.Context, st *runState) error {
 	return nil
 }
 
-// applyPushFonts runs one pass over the local fonts, writing new and
-// replaced fonts and their manifests. Answered conflicts keep their answer
+// applyPushFonts runs one pass over the local fonts: it decides every font
+// first (prompting for conflicts), collecting the new and replaced fonts per
+// family, then stores the families. Answered conflicts keep their answer
 // across rebase retries; outcome entries are cumulative across passes.
 func (a *App) applyPushFonts(ctx context.Context, st *runState, sync bool, res *pushResult) error {
+	batches := pushBatches{}
 	for _, f := range sortedReps(st.reps) {
 		if ctx.Err() != nil {
 			return fmt.Errorf("interrupted: %w", ctx.Err())
@@ -225,40 +234,44 @@ func (a *App) applyPushFonts(ctx context.Context, st *runState, sync bool, res *
 		repo, exists := st.idx.ByKey[f.Key]
 		switch {
 		case !exists:
-			if err := a.pushAdd(ctx, st, f, res); err != nil {
-				return err
-			}
+			a.pushAdd(f, res, batches)
 		case repo.SHA256 == f.SHA256:
 			// Identical: no-op.
 		default:
-			if err := a.pushConflict(ctx, st, sync, f, repo, res); err != nil {
+			if err := a.pushConflict(sync, f, repo, res, batches); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	return a.storeBatches(ctx, st, res, batches)
 }
 
-// pushAdd stores a font the repository does not have yet.
-func (a *App) pushAdd(ctx context.Context, st *runState, f *fonts.Font, res *pushResult) error {
+// pushAdd queues a font the repository does not have yet.
+func (a *App) pushAdd(f *fonts.Font, res *pushResult, batches pushBatches) {
 	// Invariant: the repo path must not exist for a key that is not in the
 	// index. familyFor checks it while resolving the family manifest.
 	if a.Opts.DryRun {
 		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would add %s -> %s\n", f.Path, displayFont(f))
-		if !res.addedKeys[f.Key] {
-			res.addedKeys[f.Key] = true
-			res.added = append(res.added, f)
-		}
-		return nil
+		recordAdded(res, f)
+		return
 	}
-	if err := a.storeFont(ctx, st, f, nil); err != nil {
-		return err
-	}
+	batches.add(f, nil, false)
+}
+
+// recordAdded lists a font under "added to repo" exactly once per key.
+func recordAdded(res *pushResult, f *fonts.Font) {
 	if !res.addedKeys[f.Key] {
 		res.addedKeys[f.Key] = true
 		res.added = append(res.added, f)
 	}
-	return nil
+}
+
+// recordReplaced lists a font under "replaced in repo" exactly once per key.
+func recordReplaced(res *pushResult, f *fonts.Font) {
+	if !res.replacedKeys[f.Key] {
+		res.replacedKeys[f.Key] = true
+		res.replaced = append(res.replaced, f)
+	}
 }
 
 // familyFor returns the family manifest that owns the font's archive: the
@@ -290,7 +303,7 @@ func (a *App) familyFor(ctx context.Context, st *runState, f *fonts.Font) (*work
 // stageArchive returns the path of the family archive inside the workdir,
 // fetching it first when the branch already has one: the workdir is sparse,
 // so only manifest/ is checked out. fresh says the branch has no such archive
-// yet, in which case 7z creates it.
+// yet, in which case the encoder creates it.
 //
 // note: a stale on-disk copy is refetched when its hash is not the one the
 // manifest records. A rebase retry re-runs the apply pass, and a family
@@ -346,70 +359,181 @@ func (a *App) archiveMatches(fam *workdir.FamilyManifest, path string) bool {
 	return err == nil && got == fam.ArchiveSHA256
 }
 
-// storeFont writes one font into its family archive and stages the result:
-// the font's bytes go into a temp staging file (whose basename is the member
-// name 7z records), 7z updates the archive in the workdir, and the family
-// manifest is rewritten with the archive's new hash and size.
-//
-// note: repo (nil for a new font) is the manifest entry being replaced: its
-// dates carry over to the new entry, the way a replaced font's first_archived
-// did before.
-func (a *App) storeFont(ctx context.Context, st *runState, f *fonts.Font, repo *workdir.Manifest) error {
-	fam, fresh, err := a.familyFor(ctx, st, f)
-	if err != nil {
-		return err
-	}
-	archive, err := a.stageArchive(ctx, st, fam, fresh)
-	if err != nil {
-		return err
-	}
-	content, err := os.ReadFile(f.Path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", f.Path, err)
-	}
-	// 7z records the input path relative to its working directory, so the
-	// staging file's name is the member name and its parent is the cwd.
-	stageDir, err := a.newTempDir("member")
-	if err != nil {
-		return err
-	}
-	stagePath := filepath.Join(stageDir, f.MemberName())
-	if err := os.WriteFile(stagePath, content, 0o644); err != nil {
-		return fmt.Errorf("stage %s: %w", f.MemberName(), err)
-	}
-	if err := a.sevenz.Add(ctx, archive, f.MemberName(), stagePath); err != nil {
-		return fmt.Errorf("add %s to %s: %w", f.MemberName(), fam.RepoPath, err)
-	}
+// pushBatch is the set of fonts one family receives in an apply pass. The
+// family archive is encoded once with all of them, after every conflict has
+// been answered, so the slow brotli encode runs once per changed family and
+// families encode in parallel.
+type pushBatch struct {
+	fam         *workdir.FamilyManifest
+	fresh       bool   // the branch has no archive for this family yet
+	archivePath string // workdir path of the family archive
+	stores      []pushStore
+	// filled by encodeFamily
+	sha256 string
+	size   int64
+}
 
-	archiveSHA, archiveSize, err := fsutil.HashAndSize(archive)
-	if err != nil {
-		return err
-	}
-	fam.SetArchive(archiveSHA, archiveSize)
+// pushStore is one font going into its family archive. repo (nil for a new
+// font) is the manifest entry being replaced: its first_archived carries
+// over to the new entry.
+type pushStore struct {
+	font    *fonts.Font
+	repo    *workdir.Manifest
+	replace bool
+}
 
-	manifest := manifestForFont(f, fam.RepoPath, f.MemberName())
-	workdir.NewFromFont(manifest, a.Clock())
-	if repo != nil {
-		manifest.FirstArchived = repo.FirstArchived
+// pushBatches collects the pass's stores by family archive path.
+type pushBatches map[string]*pushBatch
+
+// add queues f for its family, in decision order.
+func (b pushBatches) add(f *fonts.Font, repo *workdir.Manifest, replace bool) {
+	path := f.RepoPath()
+	batch := b[path]
+	if batch == nil {
+		batch = &pushBatch{}
+		b[path] = batch
 	}
-	// PutEntry returns the entry now in the manifest; the index must point
-	// at that same record, not at the local copy.
-	entry := fam.PutEntry(manifest, a.Clock())
-	if err := a.writeManifest(st, fam); err != nil {
+	batch.stores = append(batch.stores, pushStore{font: f, repo: repo, replace: replace})
+}
+
+// storeBatches writes every queued family: the existing archives are
+// fetched one at a time (git), the archives are encoded in parallel (CPU),
+// and the manifests are written and staged one at a time (git), in repo
+// path order so the pass is deterministic.
+func (a *App) storeBatches(ctx context.Context, st *runState, res *pushResult, batches pushBatches) error {
+	ordered := make([]*pushBatch, 0, len(batches))
+	for _, path := range slices.Sorted(maps.Keys(batches)) {
+		ordered = append(ordered, batches[path])
+	}
+	for _, b := range ordered {
+		fam, fresh, err := a.familyFor(ctx, st, b.stores[0].font)
+		if err != nil {
+			return err
+		}
+		path, err := a.stageArchive(ctx, st, fam, fresh)
+		if err != nil {
+			return err
+		}
+		b.fam, b.fresh, b.archivePath = fam, fresh, path
+	}
+	if err := a.encodeBatches(ctx, ordered); err != nil {
 		return err
 	}
-	archiveSlash := filepath.ToSlash(archive)
-	if _, err := a.git.AddSparse(ctx, st.workdir.Dir, archiveSlash, fam.Path); err != nil {
-		return fmt.Errorf("stage %s and %s: %w", archiveSlash, fam.Path, err)
+	for _, b := range ordered {
+		if err := a.recordBatch(ctx, st, res, b); err != nil {
+			return err
+		}
 	}
-	st.idx.ByKey[f.Key] = entry
-	st.idx.ByPath[fam.RepoPath] = fam
-	a.Log.Info("staged font in family archive", "path", fam.RepoPath, "member", f.MemberName())
+	return nil
+}
+
+// encodeBatches encodes the family archives concurrently, one worker per
+// CPU core at most. Every batch writes its own file, so the workers share
+// nothing; the first failure in repo path order is reported.
+func (a *App) encodeBatches(ctx context.Context, batches []*pushBatch) error {
+	if len(batches) == 0 {
+		return nil
+	}
+	workers := min(runtime.NumCPU(), len(batches))
+	a.Log.Info("encoding family archives", "families", len(batches), "workers", workers)
+	errs := make([]error, len(batches))
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for i, b := range batches {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			errs[i] = a.encodeFamily(ctx, b)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// encodeFamily rebuilds one family archive: the members of the fetched
+// archive (none for a fresh family) plus the batch's fonts, new ones added
+// and replaced ones overwritten under their member name, encoded and written
+// atomically to the workdir path. The archive hash is taken from the bytes
+// written, so the manifest describes exactly the staged file.
+func (a *App) encodeFamily(ctx context.Context, b *pushBatch) error {
+	members := map[string][]byte{}
+	if !b.fresh {
+		data, err := os.ReadFile(b.archivePath)
+		if err != nil {
+			return fmt.Errorf("read family archive %s: %w", b.fam.RepoPath, err)
+		}
+		if members, err = archive.Decode(data); err != nil {
+			return fmt.Errorf("decode family archive %s: %w", b.fam.RepoPath, err)
+		}
+	}
+	for _, s := range b.stores {
+		content, err := os.ReadFile(s.font.Path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", s.font.Path, err)
+		}
+		members[s.font.MemberName()] = content
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("interrupted: %w", ctx.Err())
+	}
+	start := time.Now()
+	out, err := archive.Encode(members)
+	if err != nil {
+		return fmt.Errorf("encode family archive %s: %w", b.fam.RepoPath, err)
+	}
+	if err := fsutil.AtomicWrite(b.archivePath, out, 0o644); err != nil {
+		return fmt.Errorf("write family archive %s: %w", b.fam.RepoPath, err)
+	}
+	sum := sha256.Sum256(out)
+	b.sha256 = hex.EncodeToString(sum[:])
+	b.size = int64(len(out))
+	a.Log.Info("encoded family archive", "path", b.fam.RepoPath, "members", len(members),
+		"bytes", b.size, "took", time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+// recordBatch updates the family manifest for an encoded batch, writes it,
+// stages it with the archive, and lists the fonts in the push outcome.
+func (a *App) recordBatch(ctx context.Context, st *runState, res *pushResult, b *pushBatch) error {
+	b.fam.SetArchive(b.sha256, b.size)
+	for _, s := range b.stores {
+		manifest := manifestForFont(s.font, b.fam.RepoPath, s.font.MemberName())
+		workdir.NewFromFont(manifest, a.Clock())
+		if s.repo != nil {
+			manifest.FirstArchived = s.repo.FirstArchived
+		}
+		// PutEntry returns the entry now in the manifest; the index must
+		// point at that same record, not at the local copy.
+		st.idx.ByKey[s.font.Key] = b.fam.PutEntry(manifest, a.Clock())
+	}
+	if err := a.writeManifest(st, b.fam); err != nil {
+		return err
+	}
+	archiveSlash := filepath.ToSlash(b.archivePath)
+	if _, err := a.git.AddSparse(ctx, st.workdir.Dir, archiveSlash, b.fam.Path); err != nil {
+		return fmt.Errorf("stage %s and %s: %w", archiveSlash, b.fam.Path, err)
+	}
+	st.idx.ByPath[b.fam.RepoPath] = b.fam
+	for _, s := range b.stores {
+		if s.replace {
+			recordReplaced(res, s.font)
+		} else {
+			recordAdded(res, s.font)
+		}
+		a.Log.Info("staged font in family archive", "path", b.fam.RepoPath, "member", s.font.MemberName())
+	}
 	return nil
 }
 
 // pushConflict resolves a same-key/different-hash conflict.
-func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *fonts.Font, repo *workdir.Manifest, res *pushResult) error {
+func (a *App) pushConflict(sync bool, f *fonts.Font, repo *workdir.Manifest, res *pushResult, batches pushBatches) error {
 	choice, answered := res.answers[f.Key]
 	if !answered {
 		choice = a.resolvePushChoice(sync, f, repo, res)
@@ -431,7 +555,8 @@ func (a *App) pushConflict(ctx context.Context, st *runState, sync bool, f *font
 		// Continue below.
 	}
 
-	return a.replaceRepoFont(ctx, st, f, repo, res)
+	a.replaceRepoFont(f, repo, res, batches)
+	return nil
 }
 
 // resolvePushChoice asks (or auto-skips under -y) about an unanswered
@@ -484,23 +609,13 @@ func (a *App) resolvePushChoice(sync bool, f *fonts.Font, repo *workdir.Manifest
 // replaceRepoFont overwrites the repo copy with the local font: dry-run
 // notice, then store the font in its family archive and update the
 // manifest, stage and index the result.
-func (a *App) replaceRepoFont(ctx context.Context, st *runState, f *fonts.Font, repo *workdir.Manifest, res *pushResult) error {
+func (a *App) replaceRepoFont(f *fonts.Font, repo *workdir.Manifest, res *pushResult, batches pushBatches) {
 	if a.Opts.DryRun {
 		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, displayEntry(repo))
-		if !res.replacedKeys[f.Key] {
-			res.replacedKeys[f.Key] = true
-			res.replaced = append(res.replaced, f)
-		}
-		return nil
+		recordReplaced(res, f)
+		return
 	}
-	if err := a.storeFont(ctx, st, f, repo); err != nil {
-		return err
-	}
-	if !res.replacedKeys[f.Key] {
-		res.replacedKeys[f.Key] = true
-		res.replaced = append(res.replaced, f)
-	}
-	return nil
+	batches.add(f, repo, true)
 }
 
 // appendSkipped records a skipped conflict exactly once per key.
