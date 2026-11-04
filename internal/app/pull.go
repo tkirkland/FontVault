@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"fontvault/internal/archive"
 	"fontvault/internal/cli"
 	"fontvault/internal/exclude"
 	"fontvault/internal/fonts"
@@ -279,9 +280,9 @@ func (a *App) pullMemberContent(ctx context.Context, st *runState, m *workdir.Ma
 		return nil, fmt.Errorf("verify %s: archive hash mismatch (got %s, manifest has %s)",
 			m.RepoPath, arch.sha256, want)
 	}
-	member, err := a.sevenz.Extract(ctx, arch.file, m.Member)
-	if err != nil {
-		return nil, fmt.Errorf("extract %s from %s: %w", m.Member, m.RepoPath, err)
+	member, ok := arch.members[m.Member]
+	if !ok {
+		return nil, fmt.Errorf("extract %s from %s: no such member in archive", m.Member, m.RepoPath)
 	}
 	sum := sha256.Sum256(member)
 	got := hex.EncodeToString(sum[:])
@@ -296,15 +297,16 @@ func (a *App) pullMemberContent(ctx context.Context, st *runState, m *workdir.Ma
 	return member, nil
 }
 
-// pullArchives holds the family archives fetched during this run, keyed by
-// repository path, so several fonts of one family download the archive once.
+// pullArchive is one family archive fetched and decoded during this run,
+// kept in memory (a family is a few megabytes) so several fonts of the
+// family download and decode it once.
 type pullArchive struct {
-	file   string // temp file holding the archive bytes
-	sha256 string // hash of those bytes, computed after the fetch
+	sha256  string            // hash of the archive bytes, computed after the fetch
+	members map[string][]byte // member name -> font bytes
 }
 
 // fetchFamilyArchive returns the run's cached copy of one family archive,
-// downloading it into a temp file on first use.
+// downloading and decoding it on first use.
 func (a *App) fetchFamilyArchive(ctx context.Context, st *runState, repoPath string) (pullArchive, error) {
 	if hit, ok := a.pullArchives[repoPath]; ok {
 		return hit, nil
@@ -313,16 +315,12 @@ func (a *App) fetchFamilyArchive(ctx context.Context, st *runState, repoPath str
 	if err != nil {
 		return pullArchive{}, err
 	}
-	dir, err := a.newTempDir("archive")
+	members, err := archive.Decode(blob)
 	if err != nil {
-		return pullArchive{}, err
-	}
-	file := filepath.Join(dir, filepath.Base(repoPath))
-	if err := os.WriteFile(file, blob, 0600); err != nil {
-		return pullArchive{}, fmt.Errorf("write %s: %w", file, err)
+		return pullArchive{}, fmt.Errorf("decode %s: %w", repoPath, err)
 	}
 	sum := sha256.Sum256(blob)
-	arch := pullArchive{file: file, sha256: hex.EncodeToString(sum[:])}
+	arch := pullArchive{sha256: hex.EncodeToString(sum[:]), members: members}
 	a.pullArchives[repoPath] = arch
 	return arch, nil
 }
