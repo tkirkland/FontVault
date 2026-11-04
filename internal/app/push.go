@@ -234,7 +234,7 @@ func (a *App) applyPushFonts(ctx context.Context, st *runState, sync bool, res *
 		repo, exists := st.idx.ByKey[f.Key]
 		switch {
 		case !exists:
-			a.pushAdd(f, res, batches)
+			a.pushAdd(f, batches)
 		case repo.SHA256 == f.SHA256:
 			// Identical: no-op.
 		default:
@@ -247,7 +247,7 @@ func (a *App) applyPushFonts(ctx context.Context, st *runState, sync bool, res *
 }
 
 // pushAdd queues a font the repository does not have yet.
-func (a *App) pushAdd(f *fonts.Font, res *pushResult, batches pushBatches) {
+func (a *App) pushAdd(f *fonts.Font, batches pushBatches) {
 	// Invariant: the repo path must not exist for a key that is not in the
 	// index. familyFor checks it while resolving the family manifest.
 	if a.Opts.DryRun {
@@ -359,7 +359,7 @@ func (a *App) archiveMatches(fam *workdir.FamilyManifest, path string) bool {
 
 // pushBatch is the set of fonts one family receives in an apply pass. The
 // family archive is encoded once with all of them, after every conflict has
-// been answered, so the slow brotli encode runs once per changed family and
+// been answered, so the slow Brotli encode runs once per changed family and
 // families encode in parallel.
 type pushBatch struct {
 	fam         *workdir.FamilyManifest
@@ -593,7 +593,7 @@ func (a *App) pushConflict(sync bool, f *fonts.Font, repo *workdir.Manifest, res
 		// Continue below.
 	}
 
-	a.replaceRepoFont(f, repo, res, batches)
+	a.replaceRepoFont(f, repo, batches)
 	return nil
 }
 
@@ -647,7 +647,7 @@ func (a *App) resolvePushChoice(sync bool, f *fonts.Font, repo *workdir.Manifest
 // replaceRepoFont overwrites the repo copy with the local font: dry-run
 // notice, then store the font in its family archive and update the
 // manifest, stage and index the result.
-func (a *App) replaceRepoFont(f *fonts.Font, repo *workdir.Manifest, res *pushResult, batches pushBatches) {
+func (a *App) replaceRepoFont(f *fonts.Font, repo *workdir.Manifest, batches pushBatches) {
 	if a.Opts.DryRun {
 		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would replace %s -> %s\n", f.Path, displayEntry(repo))
 	}
