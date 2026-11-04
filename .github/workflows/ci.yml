@@ -22,17 +22,6 @@ jobs:
           cache: true
       - name: Install git-lfs
         run: git lfs install --skip-repo
-      - name: Install 7-Zip (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          sudo apt-get --yes install 7z || sudo apt-get --yes install 7zz || sudo apt-get --yes install p7zip-full
-      - name: Install 7-Zip (Windows)
-        if: runner.os == 'Windows'
-        run: choco install 7zip --no-progress
-      - name: Check 7-Zip
-        shell: bash
-        run: command -v 7z || command -v 7za || ls "/c/Program Files/7-Zip/7z.exe"
       - name: Build
         run: go build ./...
         env:
