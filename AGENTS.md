@@ -1,5 +1,65 @@
 # Project memory — session of 2026-11-04
 
+## Family archives: 7z replaced by tar+brotli q11, pure Go (uncommitted)
+
+User asked for internal archive handling without losing ratio (repo has an
+LFS space constraint). Measured on real families (Calibri 8.1 MB, Corbel
+1.5 MB, Segoe UI 4.7 MB; bench program lived in `%TEMP%\fv-bench`):
+
+| codec (pure Go unless noted)      | Calibri | Corbel | Segoe UI |
+|-----------------------------------|---------|--------|----------|
+| 7-Zip LZMA2 -mx=5 (old, external) | 31.5%   | 29.2%  | 38.8%    |
+| brotli q11 lgwin 24 (chosen)      | 32.2%   | 29.5%  | 39.4%    |
+| xz (ulikunitz)                    | 37.4%   | 34.4%  | 44.9%    |
+| zstd best (klauspost)             | 39.2%   | 37.7%  | 47.2%    |
+| zip Deflate-9 (stdlib)            | 50.2%   | 54.2%  | 58.2%    |
+
+Brotli q11 ≈ 4–5 s/MB encode (q10 half that for +1–2%, q9 1.3 s for +5%),
+decode ~0.08 s/8 MB. **No pure-Go 7z writer exists** (readers only), so the
+container changed rather than the tool.
+
+- New `internal/archive` (dep `github.com/andybalholm/brotli` v1.2.7, MIT,
+  no cgo): `Encode(map[name][]byte)` → solid tar (USTAR, mtime epoch, mode
+  0644, sorted names) → brotli q11/lgwin 24; `Decode`, `Members`, `Extract`. **Deterministic**: equal members ⇒ equal
+  bytes on every machine (asserted by
+  `TestArchiveBytesAreDeterministicAcrossMachines`). `Ext = ".tar.br"`.
+- `internal/archive7z` deleted; preflight 7z check, `sevenz` field, temp-dir
+  helpers (`newTempDir`/`addTempDir`/`tempDirs`) removed from app.go.
+- Layout: `fonts/<family>/<family>-<hash8>.tar.br`; `archiveNameMaxLen` 88→84 (100-7-9); `.gitattributes` rule
+  `*.tar.br`; `StagedFontPaths` suffix.
+- **push restructured for parallel encoding** (`push.go`): the apply pass now
+  only *decides* (prompts happen first, sequentially) and queues stores into
+  `pushBatches` (by repo path); `storeBatches` then: (1) `familyFor` +
+  `stageArchive` per family sequentially (git fetch; invariant check fires
+  here, *before any encode*), (2) `encodeBatches` — one goroutine per family,
+  `min(NumCPU, families)` workers, each `encodeFamily` decodes the fetched
+  archive, adds/overwrites members, `archive.Encode`, `AtomicWrite`, hashes the
+  bytes it wrote, (3) `recordBatch` sequentially in path order: manifest
+  entries, `writeManifest`, `git add --sparse`, index, `res.added/replaced`
+  (`recordAdded`/`recordReplaced`). `storeFont` is gone; `pushAdd`/
+  `replaceRepoFont`/`pushConflict` lost their ctx/st params. A single brotli
+  stream cannot use multiple cores — parallelism is across families only.
+- pull: `pullArchive{sha256, members}` — the archive is decoded once per
+  family per run and kept in memory; no temp file.
+- Tests: `internal/archive` unit tests; integration: `checkArchiveMembers`
+  reads the bare repo's `lfs/objects/<oid>` and calls `archive.Members`;
+  new `TestPushEncodesFamiliesWithAllMembers` (3 families, one with 2 fonts;
+  second push extends Alpha, Bravo pointer unchanged) and the determinism
+  test. **`TestPruneNotRunAfterFailedRun` had to change**: it relied on the old
+  per-font order (Alpha staged, then Zeta's orphan-archive invariant fired);
+  the batch pipeline checks invariants before staging anything, so it was
+  split into `TestPushRefusesOrphanArchive` (invariant, no report) and a new
+  prune test whose fatal failure is `clearIdentity()` before the commit (Bravo staged → LFS object exists → commit
+  fails → objects survive; report
+  from the seed push left untouched since failed runs never delete reports).
+- CI/release workflows: 7-Zip install/check steps removed. README: 7z
+  requirement removed, layout/`.tar.br`/determinism/encode-cost paragraph.
+- Verified: gofmt, `go vet` + `GOOS=linux go vet`, full Windows
+  `go test -count=1 ./...` green (app ~161 s), full Linux suite under WSL
+  green (45/45 app tests with git-lfs present), markdownlint clean, LF on
+  every touched file. `workdir_test.go` still uses `.7z` in fixture *path
+  strings* — pure data, deliberately left.
+
 ## Rebase wedge on same-family concurrent pushes (fixed, uncommitted)
 
 Found by a `/sc:spec-panel` review of `prompt.md` (which is the dated
