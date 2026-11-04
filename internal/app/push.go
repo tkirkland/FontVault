@@ -771,7 +771,12 @@ func (a *App) pushAttempt(ctx context.Context, st *runState, res *pushResult, ap
 }
 
 // recoverPushRejection backs off (deterministic exponential + jitter, doubling
-// each attempt), then fetches and rebases onto origin.
+// each attempt), then fetches and rebases onto origin. When the rebase
+// conflicts (both sides rewrote the same family archive and manifest) it
+// abandons the rebase and resets the branch to origin instead: the dropped
+// commits hold only this run's apply output, which the retry re-derives from
+// the local fonts against the fresh index. Leaving the rebase in place would
+// strand the workdir mid-rebase, and every later run would refuse it as dirty.
 func (a *App) recoverPushRejection(ctx context.Context, st *runState, backoff *time.Duration) error {
 	select {
 	case <-ctx.Done():
@@ -783,7 +788,21 @@ func (a *App) recoverPushRejection(ctx context.Context, st *runState, backoff *t
 		return fmt.Errorf("fetch %s for rebase: %w", st.workdir.Branch, err)
 	}
 	if _, err := a.git.Rebase(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
-		return fmt.Errorf("rebase onto origin/%s failed; local commits are retained: %w", st.workdir.Branch, err)
+		a.Log.Warn("rebase conflicted; dropping this run's commits and re-applying against origin", "branch", st.workdir.Branch)
+		return a.resetToOrigin(ctx, st, err)
+	}
+	return nil
+}
+
+// resetToOrigin abandons a conflicted rebase and moves the branch to
+// origin/<branch>. rebaseErr is the rebase failure, reported if the reset
+// itself fails so the workdir state can be explained.
+func (a *App) resetToOrigin(ctx context.Context, st *runState, rebaseErr error) error {
+	if _, err := a.git.RebaseAbort(ctx, st.workdir.Dir); err != nil {
+		return fmt.Errorf("abort conflicted rebase onto origin/%s (%v): %w", st.workdir.Branch, rebaseErr, err)
+	}
+	if _, err := a.git.ResetHardToOrigin(ctx, st.workdir.Dir, st.workdir.Branch); err != nil {
+		return fmt.Errorf("reset %s to origin after conflicted rebase (%v): %w", st.workdir.Branch, rebaseErr, err)
 	}
 	return nil
 }
