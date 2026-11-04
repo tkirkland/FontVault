@@ -57,7 +57,11 @@ func build(s Spec) []byte {
 	if len(s.Filler) > 0 {
 		add("FILL", s.Filler)
 	}
-	return assemble(tables, s.OTTO)
+	version := uint32(0x00010000)
+	if s.OTTO {
+		version = 0x4F54544F
+	}
+	return Assemble(tables, version)
 }
 
 // cmapBytes: format 4, a single segment mapping U+FFFF to glyph 1 (out of
@@ -166,19 +170,16 @@ func postBytes() []byte {
 	return post
 }
 
-// assemble sorts the tagged tables by tag, writes the sfnt header and table
+// Assemble sorts the tagged tables by tag, writes the sfnt header (the
+// version tag: 0x00010000 for TrueType, 0x4F54544F for OpenType) and table
 // directory (with the numTables search math), then the 4-byte-aligned bodies.
-func assemble(tables [][]byte, otto bool) []byte {
+func Assemble(tables [][]byte, version uint32) []byte {
 	sort.SliceStable(tables, func(i, j int) bool {
 		return string(tables[i][:4]) < string(tables[j][:4])
 	})
 	n := len(tables)
 	out := make([]byte, 12+16*n)
-	if otto {
-		binary.BigEndian.PutUint32(out[0:], 0x4F54544F)
-	} else {
-		binary.BigEndian.PutUint32(out[0:], 0x00010000)
-	}
+	binary.BigEndian.PutUint32(out[0:], version)
 	binary.BigEndian.PutUint16(out[4:], uint16(n))
 	searchRange := uint16(1)
 	for searchRange*2 <= uint16(n) {
