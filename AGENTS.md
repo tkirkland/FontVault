@@ -1,3 +1,35 @@
+# Project memory — session of 2026-11-04
+
+## Rebase wedge on same-family concurrent pushes (fixed, uncommitted)
+
+Found by a `/sc:spec-panel` review of `prompt.md` (which is the dated
+original build prompt, not living documentation — review findings about
+its wording are drift, not defects). The one real defect: when two
+machines add fonts to the **same family**, both commits rewrite the same
+`fonts/<family>-<h>.7z` pointer and `manifest/<family>-<h>.json`, so the
+`git rebase origin/<branch>` in `recoverPushRejection` conflicts, the run
+exits 1 with the workdir **mid-rebase**, and every later run refuses it as
+dirty ("workdir has diverged"). Different-family pushes rebased fine, which
+is why `TestNonFastForwardResolvedByRetry` never caught it.
+
+Fix: on rebase failure, `git rebase --abort` + `git reset --hard
+origin/<branch>` (`resetToOrigin` in `push.go`; `RebaseAbort`/
+`ResetHardToOrigin` in `gitops.go`), then the existing `reapplyAfterRebase`
+re-derives this run's commit from the local fonts against the fresh index (`stageArchive`'s stale-hash refetch is what
+picks up the other machine's
+archive). The dropped commits only ever hold this run's apply output, so
+nothing is lost. Reproduced RED-first by `TestNonFastForwardSameFamilyRecovers`
+(two workdirs against one bare repo, remote rewound with `update-ref`, the
+pre-push hook re-pushes the second workdir's commit); it asserts 4 commits,
+all three fonts in the manifest, the archive's members via the bare repo's
+`lfs/objects` store (`checkArchiveMembers` helper), and that a repeat push is
+a clean no-op. Full `go test -count=1 ./...` green (app ~141s).
+
+Also this session: README got a "Licensing" disclaimer (storage only, no
+license tracking, public repo) — the user committed it as f068aa0. Retracted
+one review claim after checking `isNonFastForward`: an LFS over-quota push
+exits 1 immediately, it does **not** burn the retry loop.
+
 # Project memory — session of 2026-11-03
 
 ## `sfnt.Parse` validation gate removed (invalid-font false positives)
