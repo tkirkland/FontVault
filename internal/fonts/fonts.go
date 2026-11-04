@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"path/filepath"
 	"strings"
+
+	"fontvault/internal/archive"
 )
 
 // Font is a scanned local font file with extracted metadata.
@@ -77,16 +79,16 @@ const (
 	// The archive member name is "<psname>-<keyhash8>.<ext>" and must be at
 	// most 100 characters: 100 - 4 (".ttf"/".otf") - 9 ("-"+keyhash8) = 87.
 	psNameMaxLen = 87
-	// The archive name is "<family>-<familyhash8>.7z" and must stay within
-	// 100 characters: 100 - 3 (".7z") - 9 ("-"+familyhash8) = 88.
-	archiveNameMaxLen = 88
+	// The archive name is "<family>-<familyhash8>.tar.br" and must stay within
+	// 100 characters: 100 - 7 (".tar.br") - 9 ("-"+familyhash8) = 84.
+	archiveNameMaxLen = 84
 	// The manifest name is "<family>-<familyhash8>.json" and must stay within
 	// 100 characters: 100 - 5 (".json") - 9 ("-"+familyhash8) = 86.
 	manifestNameMaxLen = 86
 )
 
 // RepoPath returns the repository path of the family archive holding this
-// font: fonts/<family>/<family>-<familyhash8>.7z, lowercased, with every
+// font: fonts/<family>/<family>-<familyhash8>.tar.br, lowercased, with every
 // component sanitized and capped. Fonts are never stored as loose files: a
 // family with one font still gets an archive. The path depends only on the
 // family name, never on the content hash.
@@ -100,9 +102,9 @@ func (f *Font) RepoPath() string {
 	return filepath.ToSlash(filepath.Join("fonts", fam, archiveName(f.Family)))
 }
 
-// archiveName returns "<sanitized family>-<familyhash8>.7z".
+// archiveName returns "<sanitized family>-<familyhash8>" + archive.Ext.
 func archiveName(family string) string {
-	return strings.ToLower(SanitizeComponent(family, archiveNameMaxLen)) + "-" + HashKey(family)[:8] + ".7z"
+	return strings.ToLower(SanitizeComponent(family, archiveNameMaxLen)) + "-" + HashKey(family)[:8] + archive.Ext
 }
 
 // MemberName returns the name this font is stored under inside its family
