@@ -2,6 +2,7 @@ package fonts
 
 import (
 	"encoding/binary"
+	"sort"
 	"strings"
 	"testing"
 
@@ -113,6 +114,170 @@ func TestTTFOTFValidation(t *testing.T) {
 			t.Fatal("expected error for truncated font")
 		}
 	})
+}
+
+func TestParseAcceptsClampedKernOverflow(t *testing.T) {
+	// The shape corbelb.ttf (and Microsoft's Cambria/Calibri) carry: one
+	// format-0 kern subtable with 14457 pairs whose true length (86750)
+	// overflows the uint16 subtableLength field, which the font stores
+	// clamped at 0xFFFF. The font is real and loads fine; only strict
+	// kerning parsers reject it, and fontvault never reads kerning.
+	b := build(t, testfont.Spec{PostScriptName: "KernOdd-Regular", FullName: "Kern Odd Regular"})
+	m, err := Parse(withExtraTables(t, b, kernClampedOverflow()))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if m.PostScriptName != "KernOdd-Regular" {
+		t.Errorf("PostScript name = %q, want %q", m.PostScriptName, "KernOdd-Regular")
+	}
+}
+
+func TestParseAcceptsZeroCoverageFormatGPOS(t *testing.T) {
+	// The shape the nerd-font patcher leaves in UbuntuSansNerdFont files:
+	// a GPOS Extension lookup pointing at a PairPos format-2 subtable whose
+	// Coverage table starts with format 0. Real shapers tolerate it; fontvault
+	// never reads GPOS at all.
+	b := build(t, testfont.Spec{PostScriptName: "GposOdd-Regular", FullName: "Gpos Odd Regular"})
+	m, err := Parse(withExtraTables(t, b, gposZeroCoverageFormat()))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if m.PostScriptName != "GposOdd-Regular" {
+		t.Errorf("PostScript name = %q, want %q", m.PostScriptName, "GposOdd-Regular")
+	}
+}
+
+// withExtraTables rebuilds a built fixture font with additional raw tables
+// (tag+payload each): it re-reads the table directory, sorts all tables by
+// tag and rewrites the header, directory and 4-byte aligned bodies, mirroring
+// testfont.assemble.
+func withExtraTables(t *testing.T, b []byte, extras ...[]byte) []byte {
+	t.Helper()
+	if len(b) < 12 {
+		t.Fatal("fixture font has no table directory")
+	}
+	num := int(binary.BigEndian.Uint16(b[4:6]))
+	var tables [][]byte
+	for i := 0; i < num; i++ {
+		if 12+16*(i+1) > len(b) {
+			t.Fatal("fixture table directory out of bounds")
+		}
+		rec := b[12+16*i:]
+		off := int(binary.BigEndian.Uint32(rec[8:12]))
+		length := int(binary.BigEndian.Uint32(rec[12:16]))
+		if off+length > len(b) {
+			t.Fatal("fixture table body out of bounds")
+		}
+		entry := append([]byte{}, rec[0:4]...)
+		entry = append(entry, b[off:off+length]...)
+		tables = append(tables, entry)
+	}
+	tables = append(tables, extras...)
+	sort.SliceStable(tables, func(i, j int) bool {
+		return string(tables[i][:4]) < string(tables[j][:4])
+	})
+	return assembleTables(t, tables, binary.BigEndian.Uint32(b[0:4]))
+}
+
+// assembleTables mirrors testfont.assemble: header, search math, table
+// directory, then the 4-byte aligned bodies.
+func assembleTables(t *testing.T, tables [][]byte, version uint32) []byte {
+	n := len(tables)
+	out := make([]byte, 12+16*n)
+	binary.BigEndian.PutUint32(out[0:], version)
+	binary.BigEndian.PutUint16(out[4:], uint16(n))
+	searchRange := uint16(1)
+	for searchRange*2 <= uint16(n) {
+		searchRange *= 2
+	}
+	searchRange *= 16
+	entrySelector := uint16(0)
+	for 1<<(entrySelector+1) <= n {
+		entrySelector++
+	}
+	binary.BigEndian.PutUint16(out[6:], searchRange)
+	binary.BigEndian.PutUint16(out[8:], entrySelector)
+	binary.BigEndian.PutUint16(out[10:], uint16(16*n)-searchRange)
+	offset := 12 + 16*n
+	for i, tb := range tables {
+		rec := out[12+16*i:]
+		copy(rec[0:], tb[:4])
+		binary.BigEndian.PutUint32(rec[8:], uint32(offset))
+		binary.BigEndian.PutUint32(rec[12:], uint32(len(tb)-4))
+		offset += len(tb) - 4
+		if pad := offset % 4; pad != 0 {
+			offset += 4 - pad
+		}
+	}
+	for _, tb := range tables {
+		out = append(out, tb[4:]...)
+		for len(out)%4 != 0 {
+			out = append(out, 0)
+		}
+	}
+	return out
+}
+
+// kernClampedOverflow is a kern table in corbelb.ttf's shape: a single
+// format-0 subtable whose pairs array outgrows the uint16 subtableLength,
+// which the font stores clamped at 0xFFFF.
+func kernClampedOverflow() []byte {
+	const pairs = 14457
+	table := []byte("kern")
+	put16 := func(v uint16) {
+		table = append(table, byte(v>>8), byte(v))
+	}
+	put16(0)                    // kern version
+	put16(1)                    // numTables
+	put16(0)                    // subtable version
+	put16(0xFFFF)               // subtableLength, clamped (true value 86750 overflows)
+	table = append(table, 0, 1) // format 0, horizontal-only coverage bits
+	put16(pairs)
+	table = append(table, make([]byte, 6*pairs)...)
+	return table
+}
+
+// gposZeroCoverageFormat is a GPOS table in UbuntuSansNerdFont's shape:
+// latn/DefaultLangSys -> kern feature -> one Extension lookup whose single
+// PairPos format-2 subtable has a Coverage table with format 0.
+func gposZeroCoverageFormat() []byte {
+	payload := make([]byte, 92)
+	p16 := func(off int, v uint16) {
+		binary.BigEndian.PutUint16(payload[off:], v)
+	}
+	p16(0, 1)
+	p16(2, 0)  // GPOS version 1.0
+	p16(4, 16) // scriptListOffset
+	p16(6, 40) // featureListOffset
+	p16(8, 56) // lookupListOffset
+	p16(16, 1) // scriptCount
+	copy(payload[18:], []byte("latn"))
+	p16(22, 8)      // scriptTableOffset
+	p16(24, 4)      // defaultLangSysOffset
+	p16(26, 0)      // langSysCount
+	p16(28, 0)      // LangSys lookupOrder
+	p16(30, 0xFFFF) // no required feature
+	p16(32, 1)      // featureIndexCount
+	p16(34, 0)      // -> feature index 0
+	p16(40, 1)      // featureCount
+	copy(payload[42:], []byte("kern"))
+	p16(46, 8)                                   // featureOffset
+	p16(48, 0)                                   // featureFlags
+	p16(50, 1)                                   // feature's lookup count
+	p16(52, 0)                                   // -> lookup index 0
+	p16(56, 1)                                   // lookupCount
+	p16(58, 6)                                   // lookupTableOffset
+	p16(62, 9)                                   // lookupType 9 (Extension)
+	p16(64, 0)                                   // lookupFlag
+	p16(66, 1)                                   // subTableCount
+	p16(68, 8)                                   // subtableOffset
+	p16(70, 1)                                   // Extension format
+	p16(72, 2)                                   // inner lookupType 2 (PairPos)
+	binary.BigEndian.PutUint32(payload[74:], 12) // inner offset
+	p16(82, 2)                                   // PairPos format 2
+	p16(84, 8)                                   // coverageOffset
+	p16(90, 0)                                   // coverage format 0 (the shape the patcher emits)
+	return append([]byte("GPOS"), payload...)
 }
 
 func TestFamilyFallback(t *testing.T) {
