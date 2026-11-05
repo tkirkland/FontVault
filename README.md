@@ -54,7 +54,7 @@ Every switch has a short and a long form.
 | `-d`  | `--direction`    | `push` \| `pull` \| `sync` | no               |                                                                                                          |
 | `-c`  | `--compare`      | —                          | no               | Same as omitting `-d`. Exclusive with `-d`.                                                              |
 | `-b`  | `--branch`       | name                       | yes              | Default `main`.                                                                                          |
-| `-w`  | `--workdir`      | path                       | yes              | Default: `<user cache dir>/fontvault/<login>_fontvault`.                                                 |
+| `-w`  | `--workdir`      | path                       | yes              | Default: `<user cache dir>/fontvault/FontVault_fonts`.                                                   |
 | `-t`  | `--token`        | token                      | yes              |                                                                                                          |
 | `-e`  | `--token-env`    | env var name               | yes              | Default `GITHUB_TOKEN`.                                                                                  |
 | `-x`  | `--exclude-file` | path                       | yes              | One entry per line: a SHA-256 hash or a case-insensitive family name; `#` starts a comment.              |
