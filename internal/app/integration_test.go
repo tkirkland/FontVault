@@ -907,28 +907,32 @@ func TestDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// TestCfgPersistedSwitches: -b is persisted into the encrypted cfg after a
-// successful run; compare without persisted switches leaves it alone.
+// TestCfgPersistedSwitches: -x is persisted into the encrypted cfg after a
+// successful run; a compare run without it leaves the value alone.
 func TestCfgPersistedSwitches(t *testing.T) {
 	env := newTestEnv(t)
 	plat := env.newPlat(t)
 	env.writeFont(env.fontDir, "alpha.ttf", fontSpecA())
+	exclude := filepath.Join(env.root, "exclude.txt")
+	if err := os.WriteFile(exclude, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	res := env.runApp(t, []string{"-s", "user", "-d", "push", "-y", "-b", "dev"}, "", ghExists("alice"), plat)
+	res := env.runApp(t, []string{"-s", "user", "-d", "push", "-y", "-x", exclude}, "", ghExists("alice"), plat)
 	if res.code != ExitOK {
 		t.Fatalf("exit = %d (stderr: %s)", res.code, res.stderr)
 	}
 	cfg := env.cfgFile()
-	if cfg.Branch != "dev" {
-		t.Errorf("cfg branch = %q", cfg.Branch)
+	if cfg.ExcludeFile != exclude {
+		t.Errorf("cfg exclude file = %q", cfg.ExcludeFile)
 	}
 	// A compare run without switches must keep the cfg value.
 	res = env.runApp(t, []string{"-s", "user", "-c", "-y"}, "", ghExists("alice"), plat)
 	if res.code != ExitOK {
 		t.Fatalf("compare: %d (%s)", res.code, res.stderr)
 	}
-	if got := env.cfgFile(); got.Branch != "dev" {
-		t.Errorf("cfg branch changed to %q", got.Branch)
+	if got := env.cfgFile(); got.ExcludeFile != exclude {
+		t.Errorf("cfg exclude file changed to %q", got.ExcludeFile)
 	}
 }
 
