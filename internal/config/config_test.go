@@ -11,7 +11,6 @@ import (
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
 	in := &File{
-		Branch:      "main",
 		Workdir:     "/tmp/work",
 		Token:       "secret-token",
 		TokenEnv:    "GITHUB_TOKEN",
@@ -35,13 +34,13 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Branch != in.Branch || out.Token != in.Token || out.FormatVersion != 1 {
+	if out.Workdir != in.Workdir || out.Token != in.Token || out.FormatVersion != 1 {
 		t.Fatalf("round trip mismatch: %+v", out)
 	}
 }
 
 func TestDecryptTamperDetection(t *testing.T) {
-	data, err := Encrypt(&File{Branch: "main"})
+	data, err := Encrypt(&File{Workdir: "/w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +54,7 @@ func TestDecryptTamperDetection(t *testing.T) {
 }
 
 func TestDecryptBadMagic(t *testing.T) {
-	data, err := Encrypt(&File{Branch: "main"})
+	data, err := Encrypt(&File{Workdir: "/w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +67,7 @@ func TestDecryptBadMagic(t *testing.T) {
 }
 
 func TestDecryptUnknownVersion(t *testing.T) {
-	data, err := Encrypt(&File{Branch: "main"})
+	data, err := Encrypt(&File{Workdir: "/w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,23 +109,23 @@ func TestDecryptUnknownFormatVersionField(t *testing.T) {
 func TestSaveLoadAtomicAndMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fontvault.cfg")
-	if err := Save(path, &File{Branch: "main", Token: "abc"}); err != nil {
+	if err := Save(path, &File{Workdir: "/w", Token: "abc"}); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.GOOS == "linux" {
 		checkCfgMode(t, path)
 	}
 	got := loadCfg(t, path)
-	if got.Branch != "main" || got.Token != "abc" {
+	if got.Workdir != "/w" || got.Token != "abc" {
 		t.Fatalf("loaded = %+v", got)
 	}
 	checkNoLeftoverTemps(t, dir)
 	// Overwrite works.
-	if err := Save(path, &File{Branch: "dev", TokenEnv: "GH_PAT"}); err != nil {
+	if err := Save(path, &File{Workdir: "/w2", TokenEnv: "GH_PAT"}); err != nil {
 		t.Fatal(err)
 	}
 	got = loadCfg(t, path)
-	if got.Branch != "dev" || got.TokenEnv != "GH_PAT" || got.Token != "" {
+	if got.Workdir != "/w2" || got.TokenEnv != "GH_PAT" || got.Token != "" {
 		t.Fatalf("overwritten = %+v", got)
 	}
 }
