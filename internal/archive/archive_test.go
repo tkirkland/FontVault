@@ -93,7 +93,7 @@ func TestExtract(t *testing.T) {
 }
 
 func TestDecodeRejectsGarbage(t *testing.T) {
-	if _, err := Decode([]byte("this is not a brotli stream")); err == nil {
+	if _, err := Decode([]byte("this is not a Brotli stream")); err == nil {
 		t.Error("garbage must not decode")
 	}
 }
