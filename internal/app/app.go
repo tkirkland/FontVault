@@ -448,7 +448,7 @@ func (a *App) resolvePersisted() int {
 		cfgExclude = a.cfg.ExcludeFile
 	}
 	a.branch = config.ResolveBranch(a.Opts.Branch, cfgBranch)
-	wd, err := config.ResolveWorkdir(a.Opts.Workdir, cfgWorkdir, a.login)
+	wd, err := config.ResolveWorkdir(a.Opts.Workdir, cfgWorkdir, a.repoName())
 	if err != nil {
 		return a.preflightFail("%v", err)
 	}
