@@ -362,6 +362,24 @@ func TestNonFastForwardResolvedByRetry(t *testing.T) {
 
 	// Install a pre-push hook that pushes the external commit on the first
 	// invocation only, moving the remote underneath the app's push.
+	installOneShotPrePushHook(t, env, ext)
+
+	// Now push a new font: the first push attempt is rejected, the local
+	// commit is rebased, and the retry succeeds.
+	env.writeFont(env.fontDir, "bravo.ttf", fontSpecB())
+	// History: the rebased font commit sits on top of the external commit
+	// that moved the remote during the first push attempt.
+	log := pushExpectingCommits(t, env, plat, 4)
+	if !strings.Contains(log[0], "Add 1 font") || log[1] != "external commit" {
+		t.Errorf("history order wrong: %v", log)
+	}
+}
+
+// installOneShotPrePushHook writes a pre-push hook into env's workdir that
+// pushes ext's main to origin on its first invocation only, moving the remote
+// underneath the app's push so the push is rejected once.
+func installOneShotPrePushHook(t *testing.T, env *testEnv, ext string) {
+	t.Helper()
 	marker := filepath.ToSlash(filepath.Join(env.root, "hook-ran"))
 	hook := filepath.Join(env.workdir, ".git", "hooks", "pre-push")
 	script := "#!/bin/sh\n" +
@@ -373,23 +391,21 @@ func TestNonFastForwardResolvedByRetry(t *testing.T) {
 	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
 
-	// Now push a new font: the first push attempt is rejected, the local
-	// commit is rebased, and the retry succeeds.
-	env.writeFont(env.fontDir, "bravo.ttf", fontSpecB())
+// pushExpectingCommits runs a push as "user", requires exit 0, and returns
+// the remote main's commit subjects, newest first, requiring exactly n.
+func pushExpectingCommits(t *testing.T, env *testEnv, plat *fakePlatform, n int) []string {
+	t.Helper()
 	res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat)
 	if res.code != ExitOK {
 		t.Fatalf("exit = %d (stdout: %s, stderr: %s)", res.code, res.stdout, res.stderr)
 	}
 	log := strings.Split(env.bare("log", "--format=%s", "refs/heads/main"), "\n")
-	// History: the rebased font commit sits on top of the external commit
-	// that moved the remote during the first push attempt.
-	if len(log) != 4 {
+	if len(log) != n {
 		t.Fatalf("commits = %v", log)
 	}
-	if !strings.Contains(log[0], "Add 1 font") || log[1] != "external commit" {
-		t.Errorf("history order wrong: %v", log)
-	}
+	return log
 }
 
 // TestNonFastForwardSameFamilyRecovers: two machines add different fonts to
@@ -423,29 +439,12 @@ func TestNonFastForwardSameFamilyRecovers(t *testing.T) {
 
 	// The first machine's pre-push hook pushes the external commit on the
 	// first invocation only, moving the remote underneath the app's push.
-	marker := filepath.ToSlash(filepath.Join(env.root, "hook-ran"))
-	hook := filepath.Join(env.workdir, ".git", "hooks", "pre-push")
-	script := "#!/bin/sh\n" +
-		"if [ ! -f \"" + marker + "\" ]; then\n" +
-		"  touch \"" + marker + "\"\n" +
-		"  git -C \"" + filepath.ToSlash(ext) + "\" push origin main >/dev/null 2>&1\n" +
-		"fi\n" +
-		"exit 0\n"
-	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	installOneShotPrePushHook(t, env, ext)
 
 	italic := fontSpecA()
 	italic.PostScriptName, italic.FullName, italic.Subfamily = "Alpha-Italic", "Alpha Italic", "Italic"
 	env.writeFont(env.fontDir, "alpha-italic.ttf", italic)
-	res := env.runApp(t, pushArgs("user"), "", ghExists("alice"), plat)
-	if res.code != ExitOK {
-		t.Fatalf("exit = %d (stdout: %s, stderr: %s)", res.code, res.stdout, res.stderr)
-	}
-	log := strings.Split(env.bare("log", "--format=%s", "refs/heads/main"), "\n")
-	if len(log) != 4 {
-		t.Fatalf("commits = %v", log)
-	}
+	pushExpectingCommits(t, env, plat, 4)
 	manifest := env.show("refs/heads/main", fonts.FamilyManifestPath("Alpha"))
 	for _, want := range []string{"Alpha-Regular", "Alpha-Bold", "Alpha-Italic"} {
 		if !strings.Contains(manifest, `"postscript_name": "`+want+`"`) && !strings.Contains(manifest, `"postscript_name":"`+want+`"`) {
