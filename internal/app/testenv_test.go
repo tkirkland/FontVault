@@ -33,6 +33,7 @@ type testEnv struct {
 	install  string
 	clock    time.Time
 	identity bool
+	nonTTY   bool
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -41,6 +42,12 @@ func newTestEnv(t *testing.T) *testEnv {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	// The default workdir derives from os.UserCacheDir; point both the
+	// Windows and the Linux source at the sandbox so a run that resolves
+	// the default can never touch the real cache.
+	cache := t.TempDir()
+	t.Setenv("LOCALAPPDATA", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
 	gitconfig := filepath.Join(home, ".gitconfig")
 	cfg := "[user]\n\tname = Font Vault Test\n\temail = fontvault-test@example.invalid\n"
 	if err := os.WriteFile(gitconfig, []byte(cfg), 0o600); err != nil {
@@ -323,7 +330,7 @@ func (e *testEnv) runApp(t *testing.T, args []string, stdin string, gh *fakeGitH
 	}
 	var out, errBuffer bytes.Buffer
 	a := New(opts, "test-version", strings.NewReader(stdin), &out, &errBuffer)
-	a.TTY = func() bool { return true }
+	a.TTY = func() bool { return !e.nonTTY }
 	a.SetRemoteURL(filepath.ToSlash(e.barePath))
 	a.SetAppDir(e.appDir)
 	a.GitHub = gh
