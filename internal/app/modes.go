@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"fontvault/internal/cli"
+	"fontvault/internal/config"
 	"fontvault/internal/exclude"
 	"fontvault/internal/fonts"
 	"fontvault/internal/lockfile"
@@ -76,7 +77,7 @@ func (a *App) runModes(ctx context.Context) (int, *report.Report) {
 // when the run may go on, otherwise the exit code to return.
 func (a *App) prepareWorkdir(ctx context.Context, st *runState) int {
 	mgr := workdir.NewManager(a.git, a.Log)
-	state, lock, err := mgr.EnsureReady(ctx, a.workdir, a.remoteFor(a.login), a.branch)
+	state, lock, err := mgr.EnsureReady(ctx, a.workdir, a.remoteFor(a.login), config.Branch)
 	if err != nil {
 		// A lock held by another live instance prints as-is and exits 4.
 		if _, ok := errors.AsType[*lockfile.HeldError](err); ok {
@@ -591,7 +592,7 @@ func (a *App) baseReport(mode string) *report.Report {
 		Source:    a.Opts.Source,
 		FontDirs:  append([]string{}, a.fontSources.Dirs...),
 		Repo:      a.login + "/" + a.repoName(),
-		Branch:    a.branch,
+		Branch:    config.Branch,
 	}}
 }
 
