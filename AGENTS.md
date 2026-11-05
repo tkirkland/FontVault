@@ -1,6 +1,6 @@
 # Project memory — session of 2026-11-04
 
-## Family archives: 7z replaced by tar+brotli q11, pure Go (uncommitted)
+## Family archives: 7z replaced by tar+Brotli q11, pure Go (uncommitted)
 
 User asked for internal archive handling without losing ratio (repo has an
 LFS space constraint). Measured on real families (Calibri 8.1 MB, Corbel
@@ -20,7 +20,7 @@ container changed rather than the tool.
 
 - New `internal/archive` (dep `github.com/andybalholm/brotli` v1.2.7, MIT,
   no cgo): `Encode(map[name][]byte)` → solid tar (USTAR, mtime epoch, mode
-  0644, sorted names) → brotli q11/lgwin 24; `Decode`, `Members`, `Extract`. **Deterministic**: equal members ⇒ equal
+  0644, sorted names) → Brotli q11/lgwin 24; `Decode`, `Members`, `Extract`. **Deterministic**: equal members ⇒ equal
   bytes on every machine (asserted by
   `TestArchiveBytesAreDeterministicAcrossMachines`). `Ext = ".tar.br"`.
 - `internal/archive7z` deleted; preflight 7z check, `sevenz` field, temp-dir
@@ -37,7 +37,7 @@ container changed rather than the tool.
   bytes it wrote, (3) `recordBatch` sequentially in path order: manifest
   entries, `writeManifest`, `git add --sparse`, index, `res.added/replaced`
   (`recordAdded`/`recordReplaced`). `storeFont` is gone; `pushAdd`/
-  `replaceRepoFont`/`pushConflict` lost their ctx/st params. A single brotli
+  `replaceRepoFont`/`pushConflict` lost their ctx/st params. A single Brotli
   stream cannot use multiple cores — parallelism is across families only.
 - pull: `pullArchive{sha256, members}` — the archive is decoded once per
   family per run and kept in memory; no temp file.
@@ -56,7 +56,7 @@ container changed rather than the tool.
   requirement removed, layout/`.tar.br`/determinism/encode-cost paragraph.
 - Verified: gofmt, `go vet` + `GOOS=linux go vet`, full Windows
   `go test -count=1 ./...` green (app ~161 s), full Linux suite under WSL
-  green (45/45 app tests with git-lfs present), markdownlint clean, LF on
+  green (45/45 app tests with git-lfs present), Markdown clean, LF on
   every touched file. `workdir_test.go` still uses `.7z` in fixture *path
   strings* — pure data, deliberately left.
 - **Dry run mirrors the batch pipeline** (user: "shouldn't the dry run
@@ -92,13 +92,13 @@ re-derives this run's commit from the local fonts against the fresh index (`stag
 picks up the other machine's
 archive). The dropped commits only ever hold this run's apply output, so
 nothing is lost. Reproduced RED-first by `TestNonFastForwardSameFamilyRecovers`
-(two workdirs against one bare repo, remote rewound with `update-ref`, the
+(two work directories against one bare repo, remote rewound with `update-ref`, the
 pre-push hook re-pushes the second workdir's commit); it asserts 4 commits,
 all three fonts in the manifest, the archive's members via the bare repo's
 `lfs/objects` store (`checkArchiveMembers` helper), and that a repeat push is
 a clean no-op. Full `go test -count=1 ./...` green (app ~141s).
 
-Also this session: README got a "Licensing" disclaimer (storage only, no
+Also, this session: README got a "Licensing" disclaimer (storage only, no
 license tracking, public repo) — the user committed it as f068aa0. Retracted
 one review claim after checking `isNonFastForward`: an LFS over-quota push
 exits 1 immediately, it does **not** burn the retry loop.
@@ -159,7 +159,7 @@ helper falling back to `slog.Default()` (same nil-tolerant convention as
 `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c -o <dir>/<pkg>.test ./internal/<pkg>`
 and execute under WSL (Debian, at `/mnt/c/...`). Gotchas: invoke `wsl.exe`
 from PowerShell or via a script file — Git Bash rewrites `/mnt/c/...` args to
-`C:/Program Files/Git/mnt/...`, and WSL's outer shell re-parses the command
+`C:/Program Files/Git/mnt/...`, and WSL's outer shell reparses the command
 line so `$vars` in quoted `bash -c` strings expand early. Runner scripts used
 this session lived in `%TEMP%\fv-linux-tests\` (run.sh / count.sh). RED→GREEN
 confirmed there for the panic. WSL initially lacked git-lfs / 7z / fc-cache (23 of 42 app tests SKIPped); with the
@@ -181,7 +181,7 @@ dump program, deleted after use): `meta.go`'s `sfnt.Parse` gate made
 golang.org/x/image's *eager* kern/GPOS parsing a validity requirement
 for tables fontvault never reads.
 
-- corbelb/Calibri/Cambria shape: kern format-0 subtable with 14457 pairs
+- corbelb/Calibri/Cambria shape: Kern format-0 subtable with 14457 pairs
   → true length 86750 overflows the uint16 subtableLength; the font
   stores it **clamped at 0xFFFF**, the library demands the *truncated*
   value (21214) → `errInvalidKernTable`. (The module cache's
@@ -200,7 +200,7 @@ allowed-dependencies bullet for `golang.org/x/image/font/sfnt` deleted.
 `scan.go`: `Inspect` errors passed through un-wrapped — the old
 `fmt.Errorf("invalid font: %w", err)` doubled the prefix (and mislabeled
 read failures). `testfont/build.go`: header/`Build` doc comments promised
-an sfnt.Parse assertion that never existed — rewritten.
+a sfnt.Parse assertion that never existed — rewritten.
 
 Tests (systematic-debugging: RED before the fix, then GREEN):
 `TestParseAcceptsClampedKernOverflow` and `TestParseAcceptsZeroCoverageFormatGPOS`
