@@ -892,7 +892,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 		t.Fatalf("exit = %d (stderr: %s)", res.code, res.stderr)
 	}
 	if !strings.Contains(res.stdout, "dry-run: would add") ||
-		!strings.Contains(res.stdout, "dry-run: would push LFS objects") {
+		!strings.Contains(res.stdout, "and push to alice/FontVault_fonts") {
 		t.Errorf("dry-run plan missing: %q", res.stdout)
 	}
 	// The remote has no branch: nothing was pushed.
@@ -1057,7 +1057,7 @@ func TestArchiveBytesAreDeterministicAcrossMachines(t *testing.T) {
 // TestDryRunMirrorsPushSteps: -n walks the same path as a real push and
 // prints every step in the order it would happen: each font decision, then
 // one line per family archive that would be encoded (grouped and sorted the
-// way the real pass encodes them), then the commit, then the push.
+// way the real pass encodes them), then the commit with its push destination.
 func TestDryRunMirrorsPushSteps(t *testing.T) {
 	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
 	env.writeFont(env.fontDir, "alpha-bold.ttf", alphaVariant("Bold"))
@@ -1071,8 +1071,7 @@ func TestDryRunMirrorsPushSteps(t *testing.T) {
 		"dry-run: would add " + filepath.Join(env.fontDir, "bravo.ttf") + " -> " + archivePath("Bravo") + "#bravo-bold-",
 		"dry-run: would encode family archive " + archivePath("Alpha") + " (2 fonts: 1 added, 0 replaced) and write " + fonts.FamilyManifestPath("Alpha"),
 		"dry-run: would encode family archive " + archivePath("Bravo") + " (1 font: 1 added, 0 replaced) and write " + fonts.FamilyManifestPath("Bravo"),
-		`dry-run: would commit "Add 2 fonts"`,
-		"dry-run: would push LFS objects and branch main to origin",
+		`dry-run: would commit "Add 2 fonts" and push to alice/FontVault_fonts`,
 	}
 	last := -1
 	for _, step := range steps {
