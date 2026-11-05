@@ -1,10 +1,10 @@
 // Package archive encodes and decodes the fontvault repository's family
-// archives: a tar stream compressed with brotli, written entirely in Go.
+// archives: a tar stream compressed with Brotli, written entirely in Go.
 // Fonts are never held in the repository as loose files: one archive per
 // font family, even when the family has a single font.
 //
 // Brotli at quality 11 matches 7-Zip's LZMA2 on TrueType data to within one
-// or two percent (brotli ships a dictionary built for fonts; WOFF2 uses it),
+// or two percent (Brotli ships a dictionary built for fonts; WOFF2 uses it),
 // which is why it replaced the external 7z tool without giving up space. The
 // archive is solid (one stream over the whole tar), so members compress
 // against each other, and the encoder is deterministic: the same members
@@ -28,11 +28,11 @@ import (
 const Ext = ".tar.br"
 
 const (
-	// Quality is the brotli level. 11 is the maximum; 10 is about twice as
+	// Quality is the Brotli level. 11 is the maximum; 10 is about twice as
 	// fast for one to two percent more space, 9 is an order of magnitude
 	// faster for five percent more.
 	Quality = 11
-	// windowBits is the brotli sliding window (2^24 = 16 MiB), the largest
+	// windowBits is the Brotli sliding window (2^24 = 16 MiB), the largest
 	// the format allows without the large-window extension, so a whole
 	// family stays inside one window.
 	windowBits = 24
@@ -77,8 +77,8 @@ func Encode(members map[string][]byte) ([]byte, error) {
 func writeTar(w io.Writer, names []string, members map[string][]byte) (err error) {
 	tw := tar.NewWriter(w)
 	defer func() {
-		if cerr := tw.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("encode archive: close tar: %w", cerr)
+		if curErr := tw.Close(); curErr != nil && err == nil {
+			err = fmt.Errorf("encode archive: close tar: %w", curErr)
 		}
 	}()
 	for _, name := range names {
