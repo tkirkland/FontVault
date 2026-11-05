@@ -15,7 +15,6 @@ type Options struct {
 	Source      string
 	Direction   string // "push", "pull", "sync", or "" for compare
 	Compare     bool
-	Branch      string
 	Workdir     string
 	Token       string
 	TokenEnv    string
@@ -59,7 +58,6 @@ func Parse(args []string, errOut io.Writer) (Options, error) {
 	fs.StringVarP(&o.Source, "source", "s", "", "font source: system or user (required)")
 	fs.StringVarP(&o.Direction, "direction", "d", "", "direction: push, pull or sync")
 	fs.BoolVarP(&o.Compare, "compare", "c", false, "compare only (default when -d is omitted)")
-	fs.StringVarP(&o.Branch, "branch", "b", "", "repository branch (default: main)")
 	fs.StringVarP(&o.Workdir, "workdir", "w", "", "local git workdir path")
 	fs.StringVarP(&o.Token, "token", "t", "", "GitHub token")
 	fs.StringVarP(&o.TokenEnv, "token-env", "e", "", "environment variable holding the GitHub token (default: GITHUB_TOKEN)")
@@ -81,7 +79,7 @@ func Parse(args []string, errOut io.Writer) (Options, error) {
 		return Options{}, usageErrorf("unexpected argument %q", fs.Arg(0))
 	}
 
-	for _, name := range []string{"branch", "workdir", "token", "token-env", "exclude-file"} {
+	for _, name := range []string{"workdir", "token", "token-env", "exclude-file"} {
 		if fs.Changed(name) {
 			o.Supplied[name] = true
 		}
@@ -108,9 +106,6 @@ func validate(o *Options) error {
 	}
 	if o.Compare && o.Direction != "" {
 		return usageErrorf("-c/--compare and -d/--direction cannot be used together")
-	}
-	if o.Branch != "" && strings.TrimSpace(o.Branch) == "" {
-		return usageErrorf("invalid -b/--branch value: branch must not be blank")
 	}
 	if o.Workdir != "" && strings.TrimSpace(o.Workdir) == "" {
 		return usageErrorf("invalid -w/--workdir value: path must not be blank")
@@ -151,7 +146,6 @@ Switches:
                                push and then pull. Exclusive with -c.
   -c, --compare                Read-only comparison report. This is the default when no
                                direction is given. Exclusive with -d.
-  -b, --branch <name>          Repository branch. Default: main. Persisted in the cfg.
   -w, --workdir <path>         Local git workdir. Default:
                                <user cache dir>/fontvault/FontVault_fonts.
                                Persisted in the cfg.
