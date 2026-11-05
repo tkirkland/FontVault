@@ -792,7 +792,7 @@ func (a *App) commitIfStaged(ctx context.Context, st *runState, res *pushResult)
 	if a.Opts.DryRun {
 		if len(res.added)+len(res.replaced) > 0 {
 			summary, _, _ := strings.Cut(string(commitMessage(res.added, res.replaced)), "\n")
-			_, _ = fmt.Fprintf(a.Stdout, "dry-run: would commit %q\n", summary)
+			_, _ = fmt.Fprintf(a.Stdout, "dry-run: would commit %q and push to %s/%s\n", summary, a.login, a.repoName())
 		}
 		return nil
 	}
@@ -877,7 +877,8 @@ func commitMessage(added, replaced []*fonts.Font) []byte {
 // the apply loop after non-fast-forward rejections.
 func (a *App) pushWithRetries(ctx context.Context, st *runState, res *pushResult, apply func() error) (bool, error) {
 	if a.Opts.DryRun {
-		_, _ = fmt.Fprintf(a.Stdout, "dry-run: would push LFS objects and branch %s to origin\n", st.workdir.Branch)
+		// The commit line already names the push destination; a dry run
+		// has nothing to push.
 		return false, nil
 	}
 	backoff := time.Second
