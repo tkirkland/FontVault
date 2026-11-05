@@ -38,7 +38,6 @@ const (
 
 // File is the persisted configuration content.
 type File struct {
-	Branch        string `json:"branch"`
 	Workdir       string `json:"workdir"`
 	Token         string `json:"token"`
 	TokenEnv      string `json:"token_env"`
