@@ -23,12 +23,12 @@ func TestParseDefaultsToCompare(t *testing.T) {
 }
 
 func TestParseAllFlags(t *testing.T) {
-	o, err := parse(t, "-s", "system", "-d", "sync", "-b", "dev", "-w", "/tmp/w",
+	o, err := parse(t, "-s", "system", "-d", "sync", "-w", "/tmp/w",
 		"-t", "tok", "-e", "MY_TOK", "-x", "/tmp/x.txt", "-n", "-y", "-v")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Source != "system" || o.Direction != "sync" || o.Branch != "dev" ||
+	if o.Source != "system" || o.Direction != "sync" ||
 		o.Workdir != "/tmp/w" || o.Token != "tok" || o.TokenEnv != "MY_TOK" ||
 		o.ExcludeFile != "/tmp/x.txt" || !o.DryRun || !o.Yes || !o.Verbose {
 		t.Fatalf("options = %+v", o)
@@ -42,11 +42,11 @@ func TestParseAllFlags(t *testing.T) {
 
 // PersistedFlagNames mirrors the persisted switches for the test.
 func PersistedFlagNames() []string {
-	return []string{"branch", "workdir", "token", "token-env", "exclude-file"}
+	return []string{"workdir", "token", "token-env", "exclude-file"}
 }
 
 func TestParseLongForms(t *testing.T) {
-	o, err := parse(t, "--source", "user", "--direction", "pull", "--branch", "main",
+	o, err := parse(t, "--source", "user", "--direction", "pull",
 		"--workdir", "w", "--token", "t", "--token-env", "E", "--exclude-file", "x",
 		"--dry-run", "--yes", "--verbose")
 	if err != nil {
@@ -103,7 +103,7 @@ func TestUsageContainsEverySwitchAndExamples(t *testing.T) {
 	Usage(&buf)
 	text := buf.String()
 	for _, want := range []string{
-		"-s, --source", "-d, --direction", "-c, --compare", "-b, --branch",
+		"-s, --source", "-d, --direction", "-c, --compare",
 		"-w, --workdir", "-t, --token", "-e, --token-env", "-x, --exclude-file",
 		"-n, --dry-run", "-y, --yes", "-v, --verbose", "-h, --help", "-V, --version",
 		"First run with a token", "Compare the local fonts", "Push fonts from the system",
@@ -116,11 +116,11 @@ func TestUsageContainsEverySwitchAndExamples(t *testing.T) {
 }
 
 func TestSuppliedOnlyForGivenFlags(t *testing.T) {
-	o, err := parse(t, "-s", "user", "-b", "dev")
+	o, err := parse(t, "-s", "user", "-w", "/tmp/w")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !o.Supplied["branch"] || o.Supplied["token"] {
+	if !o.Supplied["workdir"] || o.Supplied["token"] {
 		t.Errorf("supplied = %v", o.Supplied)
 	}
 }
