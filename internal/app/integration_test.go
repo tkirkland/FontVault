@@ -1035,7 +1035,7 @@ func TestPushEncodesFamiliesWithAllMembers(t *testing.T) {
 }
 
 // TestArchiveBytesAreDeterministicAcrossMachines: two independent machines
-// (separate repos and workdirs) archiving the same fonts produce the same
+// (separate repos and work directories) archiving the same fonts produce the same
 // archive bytes, so the LFS pointer (oid and size) is identical.
 func TestArchiveBytesAreDeterministicAcrossMachines(t *testing.T) {
 	specs := map[string]testfont.Spec{
@@ -1062,7 +1062,6 @@ func TestDryRunMirrorsPushSteps(t *testing.T) {
 	env, plat := seededEnv(t, map[string]testfont.Spec{"alpha.ttf": fontSpecA()})
 	env.writeFont(env.fontDir, "alpha-bold.ttf", alphaVariant("Bold"))
 	env.writeFont(env.fontDir, "bravo.ttf", fontSpecB())
-
 	res := env.runApp(t, []string{"-s", "user", "-d", "push", "-n", "-y"}, "", ghExists("alice"), plat)
 	if res.code != ExitOK {
 		t.Fatalf("exit = %d (stderr: %s)", res.code, res.stderr)
