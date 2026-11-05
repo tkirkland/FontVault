@@ -84,7 +84,6 @@ type App struct {
 	cfgPath     string
 	reportPath  string
 	login       string
-	branch      string
 	workdir     string
 	token       string
 	tokenEnv    string
@@ -247,8 +246,7 @@ func (a *App) persistSettings() int {
 	if !config.AnySupplied(a.Opts.Supplied) {
 		return ExitOK
 	}
-	merged := config.MergeForSave(a.cfg, a.Opts.Supplied, config.BranchWorkdirToken{
-		Branch:      a.Opts.Branch,
+	merged := config.MergeForSave(a.cfg, a.Opts.Supplied, config.WorkdirToken{
 		Workdir:     a.Opts.Workdir,
 		Token:       a.Opts.Token,
 		ExcludeFile: a.Opts.ExcludeFile,
@@ -437,17 +435,15 @@ func (a *App) ensureRepo(ctx context.Context) int {
 	return ExitOK
 }
 
-// resolvePersisted applies the cfg fallbacks for branch, workdir, and the
+// resolvePersisted applies the cfg fallbacks for the workdir and the
 // exclusion file, then parses the exclusion file.
 func (a *App) resolvePersisted() int {
 	// Resolve the remaining persisted settings.
-	var cfgBranch, cfgWorkdir, cfgExclude string
+	var cfgWorkdir, cfgExclude string
 	if a.cfg != nil {
-		cfgBranch = a.cfg.Branch
 		cfgWorkdir = a.cfg.Workdir
 		cfgExclude = a.cfg.ExcludeFile
 	}
-	a.branch = config.ResolveBranch(a.Opts.Branch, cfgBranch)
 	wd, err := config.ResolveWorkdir(a.Opts.Workdir, cfgWorkdir, a.repoName())
 	if err != nil {
 		return a.preflightFail("%v", err)
@@ -589,7 +585,7 @@ func (a *App) confirmSettings() int {
 	_, _ = fmt.Fprintf(a.Stdout, "fontvault %s\n", a.Version)
 	_, _ = fmt.Fprintf(a.Stdout, "mode: %s\n", mode)
 	_, _ = fmt.Fprintf(a.Stdout, "github: %s/%s\n", a.login, a.repoName())
-	_, _ = fmt.Fprintf(a.Stdout, "branch: %s\n", a.branch)
+	_, _ = fmt.Fprintf(a.Stdout, "branch: %s\n", config.Branch)
 	_, _ = fmt.Fprintf(a.Stdout, "workdir: %s\n", a.workdir)
 	_, _ = fmt.Fprintf(a.Stdout, "source: %s\n", a.Opts.Source)
 	_, _ = fmt.Fprintln(a.Stdout, "font dirs:")
