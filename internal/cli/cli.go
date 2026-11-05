@@ -153,7 +153,7 @@ Switches:
                                direction is given. Exclusive with -d.
   -b, --branch <name>          Repository branch. Default: main. Persisted in the cfg.
   -w, --workdir <path>         Local git workdir. Default:
-                               <user cache dir>/fontvault/<login>_fontvault.
+                               <user cache dir>/fontvault/FontVault_fonts.
                                Persisted in the cfg.
   -t, --token <token>          GitHub token. Persisted (encrypted) in the cfg. Other
                                sources, in order: the env var named by -e, the cfg, and
