@@ -29,18 +29,13 @@ func TestNonTTYWithoutYesIsUsageError(t *testing.T) {
 }
 
 func TestNonTTYWithYesPassesTTYCheck(t *testing.T) {
-	opts, err := cli.Parse([]string{"-s", "user", "-y"}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	a := New(opts, "v", strings.NewReader(""), &stdout, &stderr)
-	a.TTY = func() bool { return false }
-	code := a.Run(context.Background())
-	// Without a platform/API seam the run fails later than the TTY check;
-	// it must not be the usage error.
-	if code == ExitUsage {
-		t.Fatalf("TTY check failed despite -y (stderr: %s)", stderr.String())
+	// Runs through the sandboxed env: a bare construction here would use
+	// the real token, GitHub and cache dir.
+	env := newTestEnv(t)
+	env.nonTTY = true
+	res := env.runApp(t, []string{"-s", "user", "-y"}, "", ghExists("alice"), env.newPlat(t))
+	if res.code == ExitUsage {
+		t.Fatalf("TTY check failed despite -y (stderr: %s)", res.stderr)
 	}
 }
 
