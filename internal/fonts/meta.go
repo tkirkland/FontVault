@@ -68,9 +68,9 @@ type Meta struct {
 // Parse validates data as a TTF/OTF font and extracts the metadata used for
 // identity and manifests. Validation is structural: the sfnt version tag,
 // the table directory's bounds, and the tables fontvault actually reads
-// (name, head, OS/2). Kerning tables (kern, GPOS) are deliberately not
-// validated — real-world fonts carry shapes of them that strict parsers
-// reject (clamped uint16 kern subtable lengths, GPOS coverage format 0)
+// (name, head, OS/2). Kerning tables (Kern, GPOS) are deliberately not
+// validated. Real-world fonts carry shapes of them that strict parsers
+// reject (clamped uint16 Kern subtable lengths, GPOS coverage format 0)
 // while every font loader on the platform accepts the font, and fontvault
 // never consumes those tables.
 func Parse(data []byte) (*Meta, error) {
