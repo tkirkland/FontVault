@@ -53,7 +53,6 @@ Every switch has a short and a long form.
 | `-s`  | `--source`       | `system` \| `user`         | no               | Required on every run. Selects the local font dir that is read (push/compare) and installed into (pull). |
 | `-d`  | `--direction`    | `push` \| `pull` \| `sync` | no               |                                                                                                          |
 | `-c`  | `--compare`      | —                          | no               | Same as omitting `-d`. Exclusive with `-d`.                                                              |
-| `-b`  | `--branch`       | name                       | yes              | Default `main`.                                                                                          |
 | `-w`  | `--workdir`      | path                       | yes              | Default: `<user cache dir>/fontvault/FontVault_fonts`.                                                   |
 | `-t`  | `--token`        | token                      | yes              |                                                                                                          |
 | `-e`  | `--token-env`    | env var name               | yes              | Default `GITHUB_TOKEN`.                                                                                  |
