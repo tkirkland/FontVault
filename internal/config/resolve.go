@@ -8,22 +8,12 @@ import (
 )
 
 const (
-	// DefaultBranch is used when neither the CLI nor the cfg names one.
-	DefaultBranch = "main"
+	// Branch is the only repository branch the tool uses: it initializes
+	// the branch itself on an empty repository, so nothing else selects it.
+	Branch = "main"
 	// DefaultTokenEnv is the environment variable consulted for the token.
 	DefaultTokenEnv = "GITHUB_TOKEN"
 )
-
-// ResolveBranch CLI switch, then cfg, then default.
-func ResolveBranch(cliBranch, cfgBranch string) string {
-	if cliBranch != "" {
-		return cliBranch
-	}
-	if cfgBranch != "" {
-		return cfgBranch
-	}
-	return DefaultBranch
-}
 
 // ResolveTokenEnv CLI switch, then cfg, then default.
 func ResolveTokenEnv(cliTokenEnv, cfgTokenEnv string) string {
@@ -89,18 +79,15 @@ func ResolveToken(switchToken, tokenEnvName string, env func(string) (string, bo
 
 // PersistedFlags lists the switches that are written to the cfg when
 // supplied on the command line.
-var PersistedFlags = []string{"branch", "workdir", "token", "token-env", "exclude-file"}
+var PersistedFlags = []string{"workdir", "token", "token-env", "exclude-file"}
 
 // MergeForSave builds the cfg content to persist: existing cfg values are
 // kept, and any persisted switch supplied on the command line overrides its
 // field.
-func MergeForSave(existing *File, supplied map[string]bool, cli BranchWorkdirToken, tokenEnvName string) *File {
+func MergeForSave(existing *File, supplied map[string]bool, cli WorkdirToken, tokenEnvName string) *File {
 	var out File
 	if existing != nil {
 		out = *existing
-	}
-	if supplied["branch"] {
-		out.Branch = cli.Branch
 	}
 	if supplied["workdir"] {
 		out.Workdir = cli.Workdir
@@ -118,9 +105,8 @@ func MergeForSave(existing *File, supplied map[string]bool, cli BranchWorkdirTok
 	return &out
 }
 
-// BranchWorkdirToken carries CLI switch values used when persisting the cfg.
-type BranchWorkdirToken struct {
-	Branch      string
+// WorkdirToken carries CLI switch values used when persisting the cfg.
+type WorkdirToken struct {
 	Workdir     string
 	Token       string
 	ExcludeFile string

@@ -6,18 +6,6 @@ import (
 	"testing"
 )
 
-func TestResolveBranch(t *testing.T) {
-	if got := ResolveBranch("", ""); got != "main" {
-		t.Errorf("default = %q", got)
-	}
-	if got := ResolveBranch("dev", "cfg"); got != "dev" {
-		t.Errorf("cli wins: %q", got)
-	}
-	if got := ResolveBranch("", "cfg"); got != "cfg" {
-		t.Errorf("cfg wins over default: %q", got)
-	}
-}
-
 func TestResolveTokenEnv(t *testing.T) {
 	if got := ResolveTokenEnv("", ""); got != "GITHUB_TOKEN" {
 		t.Errorf("default = %q", got)
@@ -113,24 +101,24 @@ func checkTokenFailure(t *testing.T, err error) {
 }
 
 func TestMergeForSave(t *testing.T) {
-	existing := &File{Branch: "old", Workdir: "/old", Token: "old-token", TokenEnv: "OLD_ENV", ExcludeFile: "/old.txt"}
-	cli := BranchWorkdirToken{Branch: "new", Workdir: "/new", Token: "new-token", ExcludeFile: "/new.txt"}
-	supplied := map[string]bool{"branch": true, "token": true}
+	existing := &File{Workdir: "/old", Token: "old-token", TokenEnv: "OLD_ENV", ExcludeFile: "/old.txt"}
+	cli := WorkdirToken{Workdir: "/new", Token: "new-token", ExcludeFile: "/new.txt"}
+	supplied := map[string]bool{"workdir": true, "token": true}
 
 	out := MergeForSave(existing, supplied, cli, "NEW_ENV")
-	if out.Branch != "new" || out.Token != "new-token" {
+	if out.Workdir != "/new" || out.Token != "new-token" {
 		t.Errorf("supplied values not applied: %+v", out)
 	}
 	// Unsupplied values keep their cfg value.
-	if out.Workdir != "/old" || out.TokenEnv != "OLD_ENV" || out.ExcludeFile != "/old.txt" {
+	if out.TokenEnv != "OLD_ENV" || out.ExcludeFile != "/old.txt" {
 		t.Errorf("unsupplied values must keep cfg values: %+v", out)
 	}
 	if out.FormatVersion != 1 {
 		t.Errorf("format version = %d", out.FormatVersion)
 	}
 	// Nil existing: only supplied values are set.
-	out = MergeForSave(nil, map[string]bool{"branch": true}, cli, "")
-	if out.Branch != "new" || out.Workdir != "" || out.Token != "" {
+	out = MergeForSave(nil, map[string]bool{"workdir": true}, cli, "")
+	if out.Workdir != "/new" || out.ExcludeFile != "" || out.Token != "" {
 		t.Errorf("merge with nil existing: %+v", out)
 	}
 	if !AnySupplied(map[string]bool{"workdir": true}) || AnySupplied(nil) {
