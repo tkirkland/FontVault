@@ -44,9 +44,9 @@ func ResolveExcludeFile(cliExclude, cfgExclude string) string {
 	return cfgExclude
 }
 
-// ResolveWorkdir CLI switch, then cfg, then the login-based default under
-// the user cache directory.
-func ResolveWorkdir(cliWorkdir, cfgWorkdir, login string) (string, error) {
+// ResolveWorkdir CLI switch, then cfg, then the default under the user cache
+// directory, named after the remote repository so local mirrors remote.
+func ResolveWorkdir(cliWorkdir, cfgWorkdir, repo string) (string, error) {
 	if cliWorkdir != "" {
 		return cliWorkdir, nil
 	}
@@ -57,7 +57,7 @@ func ResolveWorkdir(cliWorkdir, cfgWorkdir, login string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user cache dir for workdir: %w", err)
 	}
-	return filepath.Join(cache, "fontvault", login+"_fontvault"), nil
+	return filepath.Join(cache, "fontvault", repo), nil
 }
 
 // TokenSourceEnv returns the label used for an env-var token source.
