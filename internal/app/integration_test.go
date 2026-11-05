@@ -467,12 +467,7 @@ func TestNonFastForwardSameFamilyRecovers(t *testing.T) {
 func checkArchiveMembers(t *testing.T, env *testEnv, family string, want []string) {
 	t.Helper()
 	pointer := env.show("refs/heads/main", archivePath(family))
-	var oid string
-	for line := range strings.SplitSeq(pointer, "\n") {
-		if rest, ok := strings.CutPrefix(line, "oid sha256:"); ok {
-			oid = strings.TrimSpace(rest)
-		}
-	}
+	oid := pointerOID(pointer)
 	if len(oid) != 64 {
 		t.Fatalf("archive pointer for %s has no oid: %q", family, pointer)
 	}
@@ -489,16 +484,32 @@ func checkArchiveMembers(t *testing.T, env *testEnv, family string, want []strin
 		t.Errorf("archive members = %v, want %d", members, len(want))
 	}
 	for _, prefix := range want {
-		found := false
-		for _, m := range members {
-			if strings.HasPrefix(m, prefix) {
-				found = true
-			}
-		}
-		if !found {
+		if !hasMemberWithPrefix(members, prefix) {
 			t.Errorf("archive lacks a %s* member: %v", prefix, members)
 		}
 	}
+}
+
+// pointerOID returns the sha256 hex from an LFS pointer's "oid sha256:" line,
+// or "" when the pointer has none.
+func pointerOID(pointer string) string {
+	var oid string
+	for line := range strings.SplitSeq(pointer, "\n") {
+		if rest, ok := strings.CutPrefix(line, "oid sha256:"); ok {
+			oid = strings.TrimSpace(rest)
+		}
+	}
+	return oid
+}
+
+// hasMemberWithPrefix reports whether any member name starts with prefix.
+func hasMemberWithPrefix(members []string, prefix string) bool {
+	for _, m := range members {
+		if strings.HasPrefix(m, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestPullInstallsOnlyMissingFonts: repo has A and B; only B is present
